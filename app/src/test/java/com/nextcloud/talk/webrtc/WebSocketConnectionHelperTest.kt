@@ -8,9 +8,11 @@ package com.nextcloud.talk.webrtc
 
 import com.nextcloud.talk.data.user.model.User
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Test
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 /**
@@ -65,6 +67,18 @@ class WebSocketConnectionHelperTest {
         )
 
         assertSame(existingInstance, result)
+    }
+
+    @Test
+    fun deleteRemovesAndDisposesInstanceThatIsStillReconnecting() {
+        val existingInstance = mock<WebSocketInstance>()
+        whenever(existingInstance.isConnected).thenReturn(false)
+        instanceMap()[USER_ID] = existingInstance
+
+        WebSocketConnectionHelper.deleteExternalSignalingInstanceForUserEntity(USER_ID)
+
+        assertFalse(instanceMap().containsKey(USER_ID))
+        verify(existingInstance).dispose()
     }
 
     companion object {

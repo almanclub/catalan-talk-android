@@ -130,6 +130,7 @@ import com.nextcloud.talk.utils.CapabilitiesUtil.isCallRecordingAvailable
 import com.nextcloud.talk.utils.ConversationUtils.checkIfVoiceRoom
 import com.nextcloud.talk.utils.NotificationUtils.getCallRingtoneUri
 import com.nextcloud.talk.utils.ReceiverFlag
+import com.nextcloud.talk.utils.RetryBackoff
 import com.nextcloud.talk.utils.SpreedFeatures
 import com.nextcloud.talk.utils.VibrationUtils.vibrateShort
 import com.nextcloud.talk.utils.animations.PulseAnimation
@@ -206,7 +207,6 @@ import java.io.IOException
 import java.util.Objects
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlin.math.abs
 
@@ -2072,7 +2072,7 @@ class CallActivity : CallBaseActivity() {
 
     private fun pullSignalingMessages() {
         val signalingApiVersion = ApiUtils.getSignalingApiVersion(conversationUser, intArrayOf(ApiUtils.API_V3, 2, 1))
-        val delayOnError = AtomicInteger(0)
+        val failureBackoff = RetryBackoff()
 
         ncApi!!.pullSignalingMessages(
             credentials,
@@ -2086,18 +2086,13 @@ class CallActivity : CallBaseActivity() {
             .observeOn(AndroidSchedulers.mainThread())
             .repeatWhen { observable: Observable<Any?>? -> observable }
             .takeWhile { isConnectionEstablished }
-            .doOnNext { delayOnError.set(0) }
+            .doOnNext { failureBackoff.reset() }
             .retryWhen { errors: Observable<Throwable?> ->
                 errors.flatMap { error: Throwable? ->
                     if (!isConnectionEstablished) {
                         return@flatMap Observable.error<Long>(error)
                     }
-                    if (delayOnError.get() == 0) {
-                        delayOnError.set(1)
-                    } else if (delayOnError.get() < DELAY_ON_ERROR_STOP_THRESHOLD) {
-                        delayOnError.set(delayOnError.get() * 2)
-                    }
-                    Observable.timer(delayOnError.get().toLong(), TimeUnit.SECONDS)
+                    Observable.timer(failureBackoff.nextDelayMillis(), TimeUnit.MILLISECONDS)
                 }
             }
             .subscribe(object : Observer<SignalingOverall> {
@@ -3727,8 +3722,6 @@ class CallActivity : CallBaseActivity() {
 
         internal fun shouldRefreshRoomSession(callStatus: CallStatus?, refreshesDone: Int): Boolean =
             callStatus !== CallStatus.IN_CONVERSATION && refreshesDone < MAX_ROOM_JOIN_REFRESHES
-
-        private const val DELAY_ON_ERROR_STOP_THRESHOLD: Int = 16
 
         private const val SESSION_ID_PREFFIX_END: Int = 4
     }

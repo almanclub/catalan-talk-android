@@ -96,12 +96,9 @@ public class WebSocketConnectionHelper {
     }
 
     public static synchronized void deleteExternalSignalingInstanceForUserEntity(long id) {
-        WebSocketInstance webSocketInstance;
-        if ((webSocketInstance = webSocketInstanceMap.get(id)) != null) {
-            if (webSocketInstance.isConnected()) {
-                webSocketInstance.sendBye();
-                webSocketInstanceMap.remove(id);
-            }
+        WebSocketInstance webSocketInstance = webSocketInstanceMap.remove(id);
+        if (webSocketInstance != null) {
+            webSocketInstance.dispose();
         }
     }
 

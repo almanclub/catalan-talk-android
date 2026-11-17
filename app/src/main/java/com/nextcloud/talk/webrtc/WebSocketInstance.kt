@@ -34,6 +34,7 @@ import com.nextcloud.talk.models.json.websocket.JoinedRoomOverallWebSocketMessag
 import com.nextcloud.talk.signaling.SignalingMessageReceiver
 import com.nextcloud.talk.signaling.SignalingMessageSender
 import com.nextcloud.talk.utils.CapabilitiesUtil
+import com.nextcloud.talk.utils.RetryBackoff
 import com.nextcloud.talk.utils.bundle.BundleKeys
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -45,7 +46,9 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import java.io.IOException
-import java.lang.Thread.sleep
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -80,6 +83,11 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
     private var currentNormalBackendSession: String? = null
     private var currentFederation: FederationSettingsDto? = null
     private var reconnecting = false
+    private val reconnectBackoff = RetryBackoff()
+    private var pendingReconnect: ScheduledFuture<*>? = null
+
+    @Volatile
+    private var disposed = false
     private val usersHashMap: HashMap<String?, ParticipantDto>
     private var messagesQueue: MutableList<String> = ArrayList()
     private val signalingMessageReceiver = ExternalSignalingMessageReceiver()
@@ -154,8 +162,50 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
         }
         isConnected = false
         messagesQueue = ArrayList()
-        sleep(ONE_SECOND)
-        restartWebSocket()
+        scheduleReconnect(webSocket)
+    }
+
+    /**
+     * Reconnects after the next delay of [reconnectBackoff], unless another connection was started in the meantime
+     * (e.g. because the network came back) or this instance was disposed.
+     */
+    @Synchronized
+    private fun scheduleReconnect(failedWebSocket: WebSocket) {
+        if (disposed) {
+            return
+        }
+        val delayMillis = reconnectBackoff.nextDelayMillis()
+        Log.d(TAG, "Reconnecting WebSocket in $delayMillis ms")
+        pendingReconnect?.cancel(false)
+        pendingReconnect = reconnectScheduler.schedule(
+            {
+                if (!disposed && failedWebSocket === internalWebSocket) {
+                    restartWebSocket()
+                }
+            },
+            delayMillis,
+            TimeUnit.MILLISECONDS
+        )
+    }
+
+    @Synchronized
+    private fun cancelPendingReconnect() {
+        pendingReconnect?.cancel(false)
+        pendingReconnect = null
+    }
+
+    /**
+     * Says goodbye to the signaling server and stops reconnecting, for an instance that is no longer handed out,
+     * e.g. after its account was removed.
+     */
+    fun dispose() {
+        disposed = true
+        cancelPendingReconnect()
+        if (eventBus?.isRegistered(this) == true) {
+            eventBus?.unregister(this)
+        }
+        sendBye()
+        internalWebSocket?.close(NORMAL_CLOSURE, null)
     }
 
     fun clearResumeId() {
@@ -379,6 +429,7 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
     private fun processHelloMessage(webSocket: WebSocket, text: String) {
         isConnected = true
         reconnecting = false
+        reconnectBackoff.reset()
         val oldResumeId = resumeId
         val (_, helloResponseWebSocketMessage1) = LoganSquare.parse(
             text,
@@ -544,8 +595,11 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
     @Subscribe(threadMode = ThreadMode.BACKGROUND)
     fun onMessageEvent(networkEvent: NetworkEvent) {
         if (networkEvent.networkConnectionEvent == NetworkEvent.NetworkConnectionEvent.NETWORK_CONNECTED &&
-            !isConnected
+            !isConnected &&
+            !disposed
         ) {
+            cancelPendingReconnect()
+            reconnectBackoff.reset()
             restartWebSocket()
         }
     }
@@ -590,8 +644,13 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
     companion object {
         private const val TAG = "WebSocketInstance"
         private const val NORMAL_CLOSURE = 1000
-        private const val ONE_SECOND: Long = 1000
         private const val PING_INTERVAL_SECONDS: Long = 30
+
+        private val reconnectScheduler: ScheduledExecutorService by lazy {
+            Executors.newSingleThreadScheduledExecutor { runnable ->
+                Thread(runnable, "WebSocketReconnect").apply { isDaemon = true }
+            }
+        }
 
         // The sender is what the signaling server says, never what the message claims, like in the web client. A
         // message without a sender gets none, so the key exchange ignores it

@@ -30,6 +30,7 @@ import com.nextcloud.talk.models.json.chat.ChatOverallSingleMessage
 import com.nextcloud.talk.models.json.converters.EnumActorTypeConverter
 import com.nextcloud.talk.models.json.generic.GenericOverall
 import com.nextcloud.talk.models.json.participants.ParticipantDto
+import com.nextcloud.talk.utils.RetryBackoff
 import com.nextcloud.talk.utils.Undo
 import com.nextcloud.talk.utils.message.SendMessageUtils
 import com.nextcloud.talk.utils.optimisticAction
@@ -56,7 +57,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import retrofit2.HttpException
 import java.io.IOException
 import javax.inject.Inject
-import kotlin.math.min
 
 @Suppress("LargeClass", "TooManyFunctions")
 class OfflineFirstChatRepository @Inject constructor(
@@ -308,11 +308,11 @@ class OfflineFirstChatRepository @Inject constructor(
             lastKnown = initialMessageId.toInt()
         )
 
-        var failureDelayMillis = LONG_POLLING_FAILURE_INITIAL_DELAY
+        val failureBackoff = RetryBackoff()
 
         while (true) {
             if (!networkMonitor.isOnline.value || itIsPaused) {
-                failureDelayMillis = LONG_POLLING_FAILURE_INITIAL_DELAY
+                failureBackoff.reset()
                 delay(HALF_SECOND)
             } else {
                 // sync database with server
@@ -322,10 +322,10 @@ class OfflineFirstChatRepository @Inject constructor(
 
                 // A failed request returns right away, e.g. with rejected credentials, which the server counts as a
                 // failed login. Without waiting, the next requests would follow at once until the server throttles.
-                failureDelayMillis = if (outcome.syncFailed) {
-                    waitAfterFailedRequest(failureDelayMillis)
+                if (outcome.syncFailed) {
+                    waitAfterFailedRequest(failureBackoff)
                 } else {
-                    LONG_POLLING_FAILURE_INITIAL_DELAY
+                    failureBackoff.reset()
                 }
 
                 val newestMessage = chatBlocksDao.getNewestMessageIdFromChatBlocks(
@@ -345,20 +345,18 @@ class OfflineFirstChatRepository @Inject constructor(
     }
 
     /**
-     * Waits [delayMillis] after a failed long polling request, and returns how long to wait if the next one fails too.
-     * Requests that failed while the device went offline should not delay the next one, so the wait ends early once
-     * it is online again.
+     * Waits the next delay of [backoff] after a failed long polling request. Requests that failed while the device went
+     * offline should not delay the next one, so the wait ends early and the backoff starts over once it is online again.
      */
-    private suspend fun waitAfterFailedRequest(delayMillis: Long): Long {
+    private suspend fun waitAfterFailedRequest(backoff: RetryBackoff) {
+        val delayMillis = backoff.nextDelayMillis()
         Log.d(TAG, "Long polling failed, next request in $delayMillis ms")
         val gotOnlineAgain = withTimeoutOrNull(delayMillis) {
             networkMonitor.isOnline.drop(1).first { isOnline -> isOnline }
         } != null
 
-        return if (gotOnlineAgain) {
-            LONG_POLLING_FAILURE_INITIAL_DELAY
-        } else {
-            min(delayMillis * 2, LONG_POLLING_FAILURE_MAX_DELAY)
+        if (gotOnlineAgain) {
+            backoff.reset()
         }
     }
 
@@ -1275,8 +1273,6 @@ class OfflineFirstChatRepository @Inject constructor(
     companion object {
         val TAG: String = OfflineFirstChatRepository::class.java.simpleName
         private const val HALF_SECOND = 500L
-        private const val LONG_POLLING_FAILURE_INITIAL_DELAY = 1_000L
-        private const val LONG_POLLING_FAILURE_MAX_DELAY = 60_000L
         private const val DEFAULT_MESSAGES_LIMIT = 100
         private const val MILLIES = 1000L
         private const val INSURANCE_REQUEST_DELAY = 2 * 60 * MILLIES
