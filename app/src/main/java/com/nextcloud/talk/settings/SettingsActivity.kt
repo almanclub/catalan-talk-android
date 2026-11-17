@@ -33,6 +33,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
@@ -187,8 +188,6 @@ class SettingsActivity :
 
         handleIntent(intent)
 
-        setupLicenceSetting(isOnline.value)
-
         binding.settingsScreenLockSummary.text = String.format(
             Locale.getDefault(),
             resources!!.getString(R.string.nc_settings_screen_lock_desc),
@@ -197,8 +196,7 @@ class SettingsActivity :
 
         setupDiagnosis()
 
-        setupPrivacyUrl(isOnline.value)
-        setupSourceCodeUrl(isOnline.value)
+        setupAboutLinks(isOnline.value)
 
         binding.settingsVersionSummary.text = String.format("v" + BuildConfig.VERSION_NAME)
 
@@ -209,9 +207,7 @@ class SettingsActivity :
     }
 
     private fun handleNetworkChange(isOnline: Boolean) {
-        setupLicenceSetting(isOnline)
-        setupPrivacyUrl(isOnline)
-        setupSourceCodeUrl(isOnline)
+        setupAboutLinks(isOnline)
         setupPhoneBookIntegration(isOnline)
         setupCheckables(isOnline)
         showSetupClientCertView(isOnline)
@@ -685,19 +681,24 @@ class SettingsActivity :
         }
     }
 
-    private fun setupSourceCodeUrl(isOnline: Boolean) {
-        if (!TextUtils.isEmpty(resources!!.getString(R.string.nc_source_code_url)) && isOnline) {
-            binding.settingsSourceCode.visibility = View.VISIBLE
-            binding.settingsSourceCode.setOnClickListener {
-                startActivity(
-                    Intent(
-                        Intent.ACTION_VIEW,
-                        resources!!.getString(R.string.nc_source_code_url).toUri()
-                    )
-                )
+    private fun setupAboutLinks(isOnline: Boolean) {
+        setupUrlSetting(binding.settingsPrivacy, R.string.nc_privacy_url, isOnline)
+        setupUrlSetting(binding.settingsTerms, R.string.nc_terms_url, isOnline)
+        setupUrlSetting(binding.settingsSupport, R.string.nc_support_url, isOnline)
+        setupUrlSetting(binding.settingsNotices, R.string.nc_notices_url, isOnline)
+        setupUrlSetting(binding.settingsSourceCode, R.string.nc_source_code_url, isOnline)
+        setupUrlSetting(binding.settingsLicence, R.string.nc_gpl3_url, isOnline)
+    }
+
+    private fun setupUrlSetting(view: View, @StringRes urlRes: Int, isOnline: Boolean) {
+        val url = resources!!.getString(urlRes)
+        if (!TextUtils.isEmpty(url) && isOnline) {
+            view.visibility = View.VISIBLE
+            view.setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
             }
         } else {
-            binding.settingsSourceCode.visibility = View.GONE
+            view.visibility = View.GONE
         }
     }
 
@@ -712,38 +713,6 @@ class SettingsActivity :
         }
         binding.shareReportWrapper.setOnClickListener {
             showShareReportDialog(this, userManager, appPreferences, logsRepository, saveZipLauncher)
-        }
-    }
-
-    private fun setupPrivacyUrl(isOnline: Boolean) {
-        if (!TextUtils.isEmpty(resources!!.getString(R.string.nc_privacy_url)) && isOnline) {
-            binding.settingsPrivacy.visibility = View.VISIBLE
-            binding.settingsPrivacy.setOnClickListener {
-                startActivity(
-                    Intent(
-                        Intent.ACTION_VIEW,
-                        resources!!.getString(R.string.nc_privacy_url).toUri()
-                    )
-                )
-            }
-        } else {
-            binding.settingsPrivacy.visibility = View.GONE
-        }
-    }
-
-    private fun setupLicenceSetting(isOnline: Boolean) {
-        if (!TextUtils.isEmpty(resources!!.getString(R.string.nc_gpl3_url)) && isOnline) {
-            binding.settingsLicence.visibility = View.VISIBLE
-            binding.settingsLicence.setOnClickListener {
-                startActivity(
-                    Intent(
-                        Intent.ACTION_VIEW,
-                        resources!!.getString(R.string.nc_gpl3_url).toUri()
-                    )
-                )
-            }
-        } else {
-            binding.settingsLicence.visibility = View.GONE
         }
     }
 

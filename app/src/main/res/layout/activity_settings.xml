@@ -1042,6 +1042,54 @@
                 </LinearLayout>
 
                 <LinearLayout
+                    android:id="@+id/settings_terms"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="@dimen/standard_margin"
+                        android:text="@string/nc_settings_terms"
+                        android:textSize="@dimen/headline_text_size" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/settings_support"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="@dimen/standard_margin"
+                        android:text="@string/nc_settings_support"
+                        android:textSize="@dimen/headline_text_size" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/settings_notices"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="@dimen/standard_margin"
+                        android:text="@string/nc_settings_third_party_notices"
+                        android:textSize="@dimen/headline_text_size" />
+
+                </LinearLayout>
+
+                <LinearLayout
                     android:id="@+id/settings_source_code"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
