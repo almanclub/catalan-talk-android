@@ -70,6 +70,8 @@ import androidx.emoji2.emojipicker.EmojiPickerView
 import androidx.emoji2.emojipicker.RecentEmojiProvider
 import com.nextcloud.talk.R
 import com.nextcloud.talk.chat.data.model.ChatMessage
+import com.nextcloud.talk.chat.report.MessageReportReason
+import com.nextcloud.talk.chat.report.isReportable
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.models.domain.ConversationModel
 import com.nextcloud.talk.models.json.capabilities.SpreedCapabilityDto
@@ -136,7 +138,8 @@ data class MessageActionsState(
     val showShare: Boolean,
     val showSave: Boolean,
     val showOpenInFiles: Boolean,
-    val showDelete: Boolean
+    val showDelete: Boolean,
+    val showReport: Boolean
 )
 
 @Suppress("LongParameterList", "CyclomaticComplexMethod", "LongMethod")
@@ -270,7 +273,8 @@ internal fun buildMessageActionsState(
         showShare = messageHasFileAttachment || (messageHasRegularText && isOnline),
         showSave = messageHasFileAttachment,
         showOpenInFiles = messageHasFileAttachment && isOnline,
-        showDelete = showMessageDeletionButton && isOnline
+        showDelete = showMessageDeletionButton && isOnline,
+        showReport = isReportable(message, user?.userId)
     )
 }
 
@@ -297,6 +301,7 @@ fun MessageActionsBottomSheet(
     onSave: () -> Unit,
     onOpenInFiles: () -> Unit,
     onDelete: () -> Unit,
+    onReport: (MessageReportReason) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -354,6 +359,7 @@ fun MessageActionsBottomSheet(
                 onSave = onSave,
                 onOpenInFiles = onOpenInFiles,
                 onDelete = onDelete,
+                onReport = onReport,
                 onDismiss = onDismiss
             )
         }
@@ -384,9 +390,11 @@ internal fun MessageActionsSheetContent(
     onSave: () -> Unit,
     onOpenInFiles: () -> Unit,
     onDelete: () -> Unit,
+    onReport: (MessageReportReason) -> Unit,
     onDismiss: () -> Unit
 ) {
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var showReportReasons by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -577,6 +585,13 @@ internal fun MessageActionsSheetContent(
                     }
                 )
             }
+            if (actionsState.showReport) {
+                MessageActionItem(
+                    iconRes = R.drawable.ic_outlined_flag_24,
+                    text = stringResource(R.string.nc_report_message),
+                    onClick = { showReportReasons = true }
+                )
+            }
             if (actionsState.showDelete) {
                 MessageActionItem(
                     iconRes = R.drawable.ic_delete,
@@ -594,6 +609,16 @@ internal fun MessageActionsSheetContent(
                 onDismiss()
             },
             onDismiss = { showDeleteConfirmation = false }
+        )
+    }
+
+    if (showReportReasons) {
+        ReportReasonDialog(
+            onReasonSelected = { reason ->
+                onReport(reason)
+                onDismiss()
+            },
+            onDismiss = { showReportReasons = false }
         )
     }
 }
@@ -802,6 +827,42 @@ private fun DeleteConfirmationDialog(onConfirm: () -> Unit, onDismiss: () -> Uni
     )
 }
 
+@Composable
+private fun ReportReasonDialog(onReasonSelected: (MessageReportReason) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                painter = painterResource(R.drawable.ic_outlined_flag_24),
+                contentDescription = null
+            )
+        },
+        title = { Text(stringResource(R.string.nc_report_message_reason_title)) },
+        text = {
+            Column {
+                MessageReportReason.entries.forEach { reason ->
+                    TextButton(
+                        onClick = { onReasonSelected(reason) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = stringResource(reason.labelRes),
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Start
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.nc_cancel))
+            }
+        }
+    )
+}
+
 @Preview(showBackground = true, name = "Light — emoji bar")
 @Preview(showBackground = true, name = "Dark — emoji bar", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
@@ -847,7 +908,8 @@ private fun PreviewMessageActionsSheetContent() {
         showShare = true,
         showSave = false,
         showOpenInFiles = false,
-        showDelete = true
+        showDelete = true,
+        showReport = true
     )
     MaterialTheme(colorScheme = colorScheme) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -873,6 +935,7 @@ private fun PreviewMessageActionsSheetContent() {
                 onSave = {},
                 onOpenInFiles = {},
                 onDelete = {},
+                onReport = {},
                 onDismiss = {}
             )
         }
@@ -907,7 +970,8 @@ private fun PreviewMessageActionsSheetPinned() {
                     showShare = false,
                     showSave = false,
                     showOpenInFiles = false,
-                    showDelete = false
+                    showDelete = false,
+                    showReport = false
                 ),
                 recentEmojiProvider = ReactionRecentEmojiProvider(LocalContext.current),
                 onEmojiClick = {},
@@ -929,6 +993,7 @@ private fun PreviewMessageActionsSheetPinned() {
                 onSave = {},
                 onOpenInFiles = {},
                 onDelete = {},
+                onReport = {},
                 onDismiss = {}
             )
         }

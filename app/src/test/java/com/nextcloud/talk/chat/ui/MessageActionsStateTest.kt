@@ -59,4 +59,16 @@ class MessageActionsStateTest {
         )
         Assert.assertFalse(buildStateFor(msg).showCopyMessageLink)
     }
+
+    @Test
+    fun showReport_falseForOwnMessage() {
+        val msg = ChatMessage(jsonMessageId = 4, actorType = "users", actorId = "alice", message = "Hello world")
+        Assert.assertFalse(buildStateFor(msg).showReport)
+    }
+
+    @Test
+    fun showReport_trueForMessageOfSomebodyElse() {
+        val msg = ChatMessage(jsonMessageId = 4, actorType = "users", actorId = "bob", message = "Hello world")
+        Assert.assertTrue(buildStateFor(msg).showReport)
+    }
 }

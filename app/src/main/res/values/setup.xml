@@ -23,6 +23,9 @@
     <bool name="multiaccount_support">true</bool>
     <string name="weblogin_url" translatable="false"></string>
     <string name="nc_report_email" translatable="false">support-cchat@danco.vn</string>
+    <!-- Message reports go to this user on the same server, and to the email address if that fails -->
+    <string name="nc_moderation_user_id" translatable="false">moderation</string>
+    <string name="nc_abuse_report_email" translatable="false">abuse-cchat@danco.vn</string>
     <!-- Flags to auto enable/disable some features -->
     <bool name="is_branded_client">true</bool>
 

@@ -16,6 +16,7 @@ package com.nextcloud.talk.chat
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -76,9 +77,11 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.emoji2.text.EmojiCompat
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.commit
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.work.Data
 import androidx.work.OneTimeWorkRequest
@@ -110,6 +113,10 @@ import com.nextcloud.talk.chat.audio.openMessageIntent
 import com.nextcloud.talk.chat.audio.toChatAudioTrack
 import com.nextcloud.talk.chat.data.model.ChatMessage
 import com.nextcloud.talk.chat.data.model.FileParameters
+import com.nextcloud.talk.chat.report.MessageReport
+import com.nextcloud.talk.chat.report.MessageReportReason
+import com.nextcloud.talk.chat.report.MessageReportViewModel
+import com.nextcloud.talk.chat.report.isSentByModeration
 import com.nextcloud.talk.chat.ui.ChatEmptyState
 import com.nextcloud.talk.chat.ui.ChatEmptyStateType
 import com.nextcloud.talk.chat.ui.ChatToolbar
@@ -312,6 +319,7 @@ class ChatActivity :
 
     lateinit var conversationInfoViewModel: ConversationInfoViewModel
     val messageInputViewModel: MessageInputViewModel by viewModels()
+    private val messageReportViewModel: MessageReportViewModel by viewModels { viewModelFactory }
 
     private var hasScheduledMessages: Boolean = false
 
@@ -1024,6 +1032,7 @@ class ChatActivity :
                             onSave = { checkIfSaveable(msg) },
                             onOpenInFiles = { openInFilesApp(msg) },
                             onDelete = { deleteMessage(msg) },
+                            onReport = { reason -> reportMessage(msg, reason) },
                             onDismiss = { chatViewModel.dismissMessageActions() }
                         )
                     }
@@ -1669,6 +1678,8 @@ class ChatActivity :
             .distinctUntilChanged()
             .onEach { (_, error) -> error?.let { showAudioError(it) } }
             .launchIn(lifecycleScope)
+
+        observeMessageReports()
 
         messageInputViewModel.editMessageViewState.observe(this) { state ->
             when (state) {
@@ -4045,6 +4056,68 @@ class ChatActivity :
         }
         val shareIntent = Intent.createChooser(sendIntent, getString(R.string.share))
         startActivity(shareIntent)
+    }
+
+    private fun observeMessageReports() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                messageReportViewModel.results.collect { result ->
+                    when (result) {
+                        MessageReportViewModel.Result.Sent ->
+                            Snackbar.make(binding.root, R.string.nc_report_message_sent, Snackbar.LENGTH_LONG).show()
+
+                        is MessageReportViewModel.Result.Failed -> openReportEmail(result.report)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun reportMessage(message: ChatMessage, reason: MessageReportReason) {
+        val report = MessageReport.from(message, reason, roomToken, currentConversation?.displayName)
+        val moderationUserId = getString(R.string.nc_moderation_user_id)
+        val userId = conversationUser.userId
+        val canSendInApp = networkMonitor.isOnline.value &&
+            !userId.isNullOrEmpty() &&
+            userId != "?" &&
+            !isSentByModeration(message, moderationUserId)
+        if (!canSendInApp) {
+            openReportEmail(report)
+            return
+        }
+        val isSending = messageReportViewModel.sendToModeration(
+            conversationUser,
+            moderationUserId,
+            chatApiVersion,
+            report
+        )
+        val feedback = if (isSending) {
+            R.string.nc_report_message_sending
+        } else {
+            R.string.nc_report_message_already_sending
+        }
+        Snackbar.make(binding.root, feedback, Snackbar.LENGTH_SHORT).show()
+    }
+
+    private fun openReportEmail(report: MessageReport) {
+        val abuseReportEmail = getString(R.string.nc_abuse_report_email)
+        val emailIntent = Intent(Intent.ACTION_SENDTO, "mailto:".toUri()).apply {
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(abuseReportEmail))
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.nc_report_message_email_subject))
+            putExtra(Intent.EXTRA_TEXT, report.toText())
+        }
+        try {
+            startActivity(emailIntent)
+            Snackbar.make(binding.root, R.string.nc_report_message_email_fallback, Snackbar.LENGTH_LONG).show()
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "No email app to send the message report", e)
+            shareMessageText(report.toText())
+            Snackbar.make(
+                binding.root,
+                getString(R.string.nc_report_message_share_fallback, abuseReportEmail),
+                Snackbar.LENGTH_LONG
+            ).show()
+        }
     }
 
     fun joinOneToOneConversation(userId: String) {

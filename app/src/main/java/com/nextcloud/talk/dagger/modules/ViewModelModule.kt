@@ -14,6 +14,7 @@ import androidx.lifecycle.ViewModelProvider
 import com.nextcloud.talk.account.viewmodels.BrowserLoginActivityViewModel
 import com.nextcloud.talk.activities.CallViewModel
 import com.nextcloud.talk.attachmentpreview.FileAttachmentPreviewViewModel
+import com.nextcloud.talk.chat.report.MessageReportViewModel
 import com.nextcloud.talk.contextchat.ContextChatViewModel
 import com.nextcloud.talk.conversationinfo.viewmodel.ConversationInfoViewModel
 import com.nextcloud.talk.conversationinfoedit.viewmodel.ConversationInfoEditViewModel
@@ -158,4 +159,9 @@ abstract class ViewModelModule {
     @IntoMap
     @ViewModelKey(FileAttachmentPreviewViewModel::class)
     internal abstract fun fileAttachmentPreviewViewModel(viewModel: FileAttachmentPreviewViewModel): ViewModel
+
+    @Binds
+    @IntoMap
+    @ViewModelKey(MessageReportViewModel::class)
+    abstract fun messageReportViewModel(viewModel: MessageReportViewModel): ViewModel
 }
