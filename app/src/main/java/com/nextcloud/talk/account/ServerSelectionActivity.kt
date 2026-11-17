@@ -144,7 +144,12 @@ class ServerSelectionActivity : BaseActivity() {
             if (ApplicationWideMessageHolder.getInstance().messageType
                 == ApplicationWideMessageHolder.MessageType.SERVER_WITHOUT_TALK
             ) {
-                setErrorText(resources!!.getString(R.string.nc_settings_no_talk_installed))
+                setErrorText(
+                    resources!!.getString(
+                        R.string.nc_nextcloud_talk_app_not_installed,
+                        resources!!.getString(R.string.nc_app_product_name)
+                    )
+                )
             } else if (ApplicationWideMessageHolder.getInstance().messageType
                 == ApplicationWideMessageHolder.MessageType.FAILED_TO_IMPORT_ACCOUNT
             ) {

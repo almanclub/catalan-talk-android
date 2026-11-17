@@ -94,7 +94,6 @@ import com.nextcloud.talk.ui.dialog.FilterConversationFragment.Companion.ARCHIVE
 import com.nextcloud.talk.ui.dialog.FilterConversationFragment.Companion.MENTION
 import com.nextcloud.talk.ui.dialog.FilterConversationFragment.Companion.UNREAD
 import com.nextcloud.talk.utils.ApiUtils
-import com.nextcloud.talk.utils.BrandingUtils
 import com.nextcloud.talk.utils.CapabilitiesUtil
 import com.nextcloud.talk.utils.CapabilitiesUtil.hasSpreedFeatureCapability
 import com.nextcloud.talk.utils.CapabilitiesUtil.isServerEOL
@@ -332,7 +331,7 @@ class ConversationsListActivity : BaseActivity() {
         ConversationsListScreenState(
             currentUser = currentUser,
             credentials = credentials ?: "",
-            showLogo = BrandingUtils.isOriginalNextcloudClient(applicationContext),
+            showLogo = true,
             viewThemeUtils = viewThemeUtils,
             isShowEcosystem = appPreferences.isShowEcosystem && !resources.getBoolean(R.bool.is_branded_client),
             snackbarHostState = snackbarHostState,

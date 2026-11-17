@@ -69,8 +69,7 @@ fun EmptyConversationsView(showLogo: Boolean, onCreateNewConversation: () -> Uni
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(72.dp),
-                contentScale = ContentScale.Fit,
-                colorFilter = ColorFilter.tint(colorResource(R.color.grey_600), BlendMode.SrcIn)
+                contentScale = ContentScale.Fit
             )
         }
 

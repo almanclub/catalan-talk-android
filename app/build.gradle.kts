@@ -82,11 +82,11 @@ android {
     productFlavors {
         // used for f-droid
         create("generic") {
-            applicationId = "com.nextcloud.talk2"
+            applicationId = "vn.catalan.talk"
             dimension = "default"
         }
         create("gplay") {
-            applicationId = "com.nextcloud.talk2"
+            applicationId = "vn.catalan.talk"
             dimension = "default"
         }
         create("qa") {
