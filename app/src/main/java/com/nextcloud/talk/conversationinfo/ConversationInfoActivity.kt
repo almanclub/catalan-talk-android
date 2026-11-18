@@ -408,7 +408,8 @@ class ConversationInfoActivity : BaseActivity() {
             onArchiveClick = { viewModel.toggleArchive(conversationUser, conversationToken) },
             onLeaveConversationClick = { leaveConversation() },
             onClearHistoryClick = { showClearHistoryDialog() },
-            onDeleteConversationClick = { showDeleteConversationDialog() }
+            onDeleteConversationClick = { showDeleteConversationDialog() },
+            onBlockUserClick = { showBlockUserDialog() }
         )
 
     private fun showSharedItems() {
@@ -474,6 +475,39 @@ class ConversationInfoActivity : BaseActivity() {
             .setTitle(R.string.nc_delete_call)
             .setMessage(R.string.nc_delete_conversation_more)
             .setPositiveButton(R.string.nc_delete) { _, _ -> deleteConversation() }
+            .setNegativeButton(R.string.nc_cancel, null)
+        viewThemeUtils.dialog.colorMaterialAlertDialogBackground(this, dialogBuilder)
+        val dialog = dialogBuilder.show()
+        viewThemeUtils.platform.colorTextButtons(
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE),
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+        )
+    }
+
+    private fun showBlockUserDialog() {
+        val state = viewModel.uiState.value
+        val block = !state.isUserBlocked
+        val displayName = state.conversation?.displayName ?: state.displayName
+        val (title, message, confirmLabel, confirmation) = if (block) {
+            listOf(
+                getString(R.string.nc_block_user_confirm_title, displayName),
+                getString(R.string.nc_block_user_confirm_message),
+                getString(R.string.nc_block),
+                getString(R.string.nc_blocked_user_snackbar, displayName)
+            )
+        } else {
+            listOf(
+                getString(R.string.nc_unblock_user_confirm_title, displayName),
+                getString(R.string.nc_unblock_user_confirm_message),
+                getString(R.string.nc_unblock),
+                getString(R.string.nc_unblocked_user_snackbar, displayName)
+            )
+        }
+        val dialogBuilder = MaterialAlertDialogBuilder(this)
+            .setIcon(viewThemeUtils.dialog.colorMaterialAlertDialogIcon(context, R.drawable.baseline_block_24))
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton(confirmLabel) { _, _ -> viewModel.setUserBlocked(block, confirmation) }
             .setNegativeButton(R.string.nc_cancel, null)
         viewThemeUtils.dialog.colorMaterialAlertDialogBackground(this, dialogBuilder)
         val dialog = dialogBuilder.show()

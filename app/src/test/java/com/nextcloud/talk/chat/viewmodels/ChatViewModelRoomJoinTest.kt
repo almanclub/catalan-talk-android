@@ -15,6 +15,7 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import com.nextcloud.talk.blockedusers.BlockedUsersRepository
 import com.nextcloud.talk.chat.data.ChatMessageRepository
 import com.nextcloud.talk.chat.data.io.AudioFocusRequestManager
 import com.nextcloud.talk.chat.data.io.MediaRecorderManager
@@ -135,6 +136,7 @@ class ChatViewModelRoomJoinTest {
             mock<MediaRecorderManager>(),
             mock<AudioFocusRequestManager>(),
             userManager,
+            mockWithEmptyFlows<BlockedUsersRepository>(),
             appScope,
             USER,
             TOKEN,

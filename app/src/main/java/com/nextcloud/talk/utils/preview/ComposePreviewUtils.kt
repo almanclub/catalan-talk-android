@@ -18,6 +18,7 @@ import com.nextcloud.android.common.ui.theme.utils.MaterialViewThemeUtils
 import com.nextcloud.talk.api.NcApi
 import com.nextcloud.talk.api.NcApiCoroutines
 import com.nextcloud.talk.arbitrarystorage.ArbitraryStorageManager
+import com.nextcloud.talk.blockedusers.BlockedUsersRepository
 import com.nextcloud.talk.chat.data.ChatMessageRepository
 import com.nextcloud.talk.chat.data.io.AudioFocusRequestManager
 import com.nextcloud.talk.chat.data.io.MediaRecorderManager
@@ -236,6 +237,7 @@ class ComposePreviewUtils private constructor(context: Context) {
             mediaRecorderManager = mediaRecorderManager,
             audioFocusRequestManager = audioFocusRequestManager,
             userManager = userManager,
+            blockedUsersRepository = BlockedUsersRepository(DummyBlockedUsersDaoImpl()),
             appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
             initialUser = currentUser,
             chatRoomToken = "",

@@ -7,9 +7,11 @@
 
 package com.nextcloud.talk.utils.preview
 
+import com.nextcloud.talk.data.database.dao.BlockedUsersDao
 import com.nextcloud.talk.data.database.dao.ChatBlocksDao
 import com.nextcloud.talk.data.database.dao.ChatMessagesDao
 import com.nextcloud.talk.data.database.dao.ConversationsDao
+import com.nextcloud.talk.data.database.model.BlockedUserEntity
 import com.nextcloud.talk.data.database.model.ChatBlockEntity
 import com.nextcloud.talk.data.database.model.ChatMessageEntity
 import com.nextcloud.talk.data.database.model.SendStatus
@@ -361,6 +363,24 @@ class DummyChatBlocksDaoImpl : ChatBlocksDao {
 
     override suspend fun getChatBlocksForConversation(internalConversationId: String): List<ChatBlockEntity> =
         emptyList()
+}
+
+class DummyBlockedUsersDaoImpl : BlockedUsersDao {
+    override fun getBlockedUsers(accountId: Long): Flow<List<BlockedUserEntity>> = flowOf(emptyList())
+
+    override suspend fun isBlocked(accountId: Long, actorType: String, actorId: String): Boolean = false
+
+    override suspend fun isActorIdBlocked(accountId: Long, actorId: String): Boolean = false
+
+    override suspend fun upsert(blockedUser: BlockedUserEntity) {
+        /* */
+    }
+
+    override suspend fun delete(accountId: Long, actorType: String, actorId: String) {
+        /* */
+    }
+
+    override fun deleteAllForAccount(accountId: Long): Int = 0
 }
 
 class DummyArbitraryStoragesRepositoryImpl : ArbitraryStoragesRepository {

@@ -9,6 +9,7 @@ package com.nextcloud.talk.conversationinfo.viewmodel
 
 import com.nextcloud.talk.R
 import com.nextcloud.talk.api.NcApi
+import com.nextcloud.talk.blockedusers.BlockedUsersRepository
 import com.nextcloud.talk.chat.data.network.ChatNetworkDataSource
 import com.nextcloud.talk.conversationinfo.ConversationInfoUiEvent
 import com.nextcloud.talk.data.user.model.User
@@ -67,6 +68,7 @@ class ConversationInfoViewModelTest {
             conversationsRepository = repository,
             ncApi = mock<NcApi>(),
             passwordPolicyRepository = mock<PasswordPolicyRepository>(),
+            blockedUsersRepository = mock<BlockedUsersRepository>(),
             logger = mock<Logger>()
         )
 

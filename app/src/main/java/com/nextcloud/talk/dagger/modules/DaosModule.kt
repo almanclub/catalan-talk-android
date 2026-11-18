@@ -7,6 +7,7 @@
 
 package com.nextcloud.talk.dagger.modules
 
+import com.nextcloud.talk.data.database.dao.BlockedUsersDao
 import com.nextcloud.talk.data.database.dao.ChatBlocksDao
 import com.nextcloud.talk.data.database.dao.ChatMessagesDao
 import com.nextcloud.talk.data.database.dao.ConversationsDao
@@ -24,4 +25,7 @@ internal object DaosModule {
 
     @Provides
     fun providesChatBlocksDao(database: TalkDatabase): ChatBlocksDao = database.chatBlocksDao()
+
+    @Provides
+    fun providesBlockedUsersDao(database: TalkDatabase): BlockedUsersDao = database.blockedUsersDao()
 }

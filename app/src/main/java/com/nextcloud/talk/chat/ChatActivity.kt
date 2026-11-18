@@ -1033,6 +1033,7 @@ class ChatActivity :
                             onOpenInFiles = { openInFilesApp(msg) },
                             onDelete = { deleteMessage(msg) },
                             onReport = { reason -> reportMessage(msg, reason) },
+                            onBlock = { blockMessageAuthor(msg) },
                             onDismiss = { chatViewModel.dismissMessageActions() }
                         )
                     }
@@ -4118,6 +4119,16 @@ class ChatActivity :
                 Snackbar.LENGTH_LONG
             ).show()
         }
+    }
+
+    private fun blockMessageAuthor(message: ChatMessage) {
+        chatViewModel.blockAuthor(message)
+        val displayName = message.actorDisplayName ?: message.actorId.orEmpty()
+        Snackbar.make(
+            binding.root,
+            getString(R.string.nc_blocked_user_snackbar, displayName),
+            Snackbar.LENGTH_LONG
+        ).show()
     }
 
     fun joinOneToOneConversation(userId: String) {

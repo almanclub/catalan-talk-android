@@ -11,6 +11,7 @@ import android.content.res.Resources
 import com.nextcloud.talk.R
 import com.nextcloud.talk.api.NcApi
 import com.nextcloud.talk.application.NextcloudTalkApplication
+import com.nextcloud.talk.blockedusers.BlockedUsersRepository
 import com.nextcloud.talk.chat.data.network.ChatNetworkDataSource
 import com.nextcloud.talk.conversationinfo.ConversationInfoUiEvent
 import com.nextcloud.talk.logger.Logger
@@ -73,6 +74,7 @@ class ConversationInfoStoredSettingsTest {
             conversationsRepository = FakeConversationsRepository(),
             ncApi = mock<NcApi>(),
             passwordPolicyRepository = mock<PasswordPolicyRepository>(),
+            blockedUsersRepository = mock<BlockedUsersRepository>(),
             logger = mock<Logger>()
         ).apply { databaseStorageModule = storage }
 

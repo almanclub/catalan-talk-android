@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.nextcloud.talk.data.source.local.Migrations
 import com.nextcloud.talk.data.source.local.TalkDatabase
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -184,5 +185,24 @@ class MigrationsTest {
             close()
         }
         helper.runMigrationsAndValidate(TEST_DB, 19, true, Migrations.MIGRATION_17_19)
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate26To27() {
+        helper.createDatabase(TEST_DB, 26).apply {
+            close()
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 27, true).apply {
+            execSQL(
+                "INSERT INTO BlockedUsers (accountId, actorType, actorId, displayName, blockedAt) " +
+                    "VALUES (1, 'users', 'alice', 'Alice', 0)"
+            )
+            query("SELECT COUNT(*) FROM BlockedUsers").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(1, cursor.getInt(0))
+            }
+            close()
+        }
     }
 }

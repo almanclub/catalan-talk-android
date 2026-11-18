@@ -17,6 +17,10 @@ import androidx.lifecycle.viewModelScope
 import com.nextcloud.talk.R
 import com.nextcloud.talk.api.NcApi
 import com.nextcloud.talk.application.NextcloudTalkApplication
+import com.nextcloud.talk.blockedusers.ACTOR_TYPE_USERS
+import com.nextcloud.talk.blockedusers.BlockedActor
+import com.nextcloud.talk.blockedusers.BlockedUsersRepository
+import com.nextcloud.talk.blockedusers.isBlockableActor
 import com.nextcloud.talk.chat.data.network.ChatNetworkDataSource
 import com.nextcloud.talk.conversationinfo.ConversationInfoUiEvent
 import com.nextcloud.talk.conversationinfo.ConversationInfoUiState
@@ -61,6 +65,7 @@ import io.reactivex.Observer
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -84,6 +89,7 @@ class ConversationInfoViewModel @Inject constructor(
     private val conversationsRepository: ConversationsRepository,
     private val ncApi: NcApi,
     private val passwordPolicyRepository: PasswordPolicyRepository,
+    private val blockedUsersRepository: BlockedUsersRepository,
     private val logger: Logger
 ) : ViewModel() {
     object LifeCycleObserver : DefaultLifecycleObserver {
@@ -117,6 +123,7 @@ class ConversationInfoViewModel @Inject constructor(
         get() = _getUnBanActorState
     private var currentUser: User? = null
     private var currentToken: String = ""
+    private var blockedStateJob: Job? = null
 
     @VisibleForTesting
     internal var databaseStorageModule: DatabaseStorageModule? = null
@@ -195,6 +202,7 @@ class ConversationInfoViewModel @Inject constructor(
             try {
                 val conversationModel = chatNetworkDataSource.getRoom(user, token)
                 _uiState.update { it.copy(conversation = conversationModel) }
+                observeBlockedState(user, conversationModel)
                 getCapabilities(user, token, conversationModel)
             } catch (e: Exception) {
                 logger.e(TAG, "Error when fetching room", e)
@@ -955,6 +963,47 @@ class ConversationInfoViewModel @Inject constructor(
 
     suspend fun emitSnackbar(text: String) {
         _uiEvent.emit(ConversationInfoUiEvent.ShowSnackbarText(text))
+    }
+
+    /**
+     * Follows whether the other user of a local 1-1 conversation is blocked on this device.
+     */
+    private fun observeBlockedState(user: User, conversationModel: ConversationModel) {
+        val otherUserId = conversationModel.name
+        val actor = BlockedActor(ACTOR_TYPE_USERS, otherUserId).takeIf {
+            conversationModel.type == ConversationEnums.ConversationType.ROOM_TYPE_ONE_TO_ONE_CALL &&
+                conversationModel.remoteServer.isNullOrEmpty() &&
+                isBlockableActor(ACTOR_TYPE_USERS, otherUserId, user.userId)
+        }
+        if (actor == _uiState.value.blockableUser && blockedStateJob != null) {
+            return
+        }
+        blockedStateJob?.cancel()
+        _uiState.update { it.copy(blockableUser = actor, isUserBlocked = false) }
+        blockedStateJob = actor?.let {
+            viewModelScope.launch {
+                blockedUsersRepository.observeBlockedActors(user.id!!).collect { blockedActors ->
+                    _uiState.update { state -> state.copy(isUserBlocked = actor in blockedActors) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Blocks or unblocks the other user of the 1-1 conversation on this device and shows [confirmation].
+     */
+    fun setUserBlocked(blocked: Boolean, confirmation: String) {
+        val accountId = currentUser?.id ?: return
+        val actor = _uiState.value.blockableUser ?: return
+        val displayName = _uiState.value.conversation?.displayName
+        viewModelScope.launch {
+            if (blocked) {
+                blockedUsersRepository.block(accountId, actor, displayName)
+            } else {
+                blockedUsersRepository.unblock(accountId, actor)
+            }
+            _uiEvent.emit(ConversationInfoUiEvent.ShowSnackbarText(confirmation))
+        }
     }
 
     private var settingChanges = 0L

@@ -71,4 +71,22 @@ class MessageActionsStateTest {
         val msg = ChatMessage(jsonMessageId = 4, actorType = "users", actorId = "bob", message = "Hello world")
         Assert.assertTrue(buildStateFor(msg).showReport)
     }
+
+    @Test
+    fun showBlock_trueForMessageOfAnotherUser() {
+        val msg = ChatMessage(jsonMessageId = 4, actorType = "users", actorId = "bob", message = "Hello world")
+        Assert.assertTrue(buildStateFor(msg).showBlock)
+    }
+
+    @Test
+    fun showBlock_falseForOwnMessage() {
+        val msg = ChatMessage(jsonMessageId = 4, actorType = "users", actorId = "alice", message = "Hello world")
+        Assert.assertFalse(buildStateFor(msg).showBlock)
+    }
+
+    @Test
+    fun showBlock_falseForGuestMessage() {
+        val msg = ChatMessage(jsonMessageId = 4, actorType = "guests", actorId = "abc123", message = "Hello world")
+        Assert.assertFalse(buildStateFor(msg).showBlock)
+    }
 }

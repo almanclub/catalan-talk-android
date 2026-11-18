@@ -61,6 +61,7 @@ import com.nextcloud.talk.api.NcApi
 import com.nextcloud.talk.api.NcApiCoroutines
 import com.nextcloud.talk.application.NextcloudTalkApplication
 import com.nextcloud.talk.application.NextcloudTalkApplication.Companion.setAppTheme
+import com.nextcloud.talk.blockedusers.BlockedUsersActivity
 import com.nextcloud.talk.conversationlist.ConversationsListActivity
 import com.nextcloud.talk.conversationlist.ConversationsListActivity.Companion.NOTIFICATION_WARNING_DATE_NOT_SET
 import com.nextcloud.talk.data.network.NetworkMonitor
@@ -193,6 +194,8 @@ class SettingsActivity :
             resources!!.getString(R.string.nc_settings_screen_lock_desc),
             resources!!.getString(R.string.nc_app_product_name)
         )
+
+        setupBlockedUsers()
 
         setupDiagnosis()
 
@@ -699,6 +702,14 @@ class SettingsActivity :
             }
         } else {
             view.visibility = View.GONE
+        }
+    }
+
+    private fun setupBlockedUsers() {
+        binding.settingsBlockedUsers.setOnClickListener {
+            val intent = Intent(context, BlockedUsersActivity::class.java)
+            intent.putExtra(BundleKeys.KEY_INTERNAL_USER_ID, currentUser!!.id)
+            startActivity(intent)
         }
     }
 

@@ -55,6 +55,8 @@ import com.nextcloud.talk.api.NcApi
 import com.nextcloud.talk.application.NextcloudTalkApplication
 import com.nextcloud.talk.application.NextcloudTalkApplication.Companion.sharedApplication
 import com.nextcloud.talk.arbitrarystorage.ArbitraryStorageManager
+import com.nextcloud.talk.blockedusers.BlockedUsersRepository
+import com.nextcloud.talk.blockedusers.notificationSenderActor
 import com.nextcloud.talk.callnotification.CallNotificationActivity
 import com.nextcloud.talk.chat.data.network.ChatNetworkDataSource
 import com.nextcloud.talk.conversationlist.DirectShareHelper
@@ -145,6 +147,9 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
     @Inject
     lateinit var userManager: UserManager
 
+    @Inject
+    lateinit var blockedUsersRepository: BlockedUsersRepository
+
     @JvmField
     @Inject
     var okHttpClient: OkHttpClient? = null
@@ -157,6 +162,7 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
     private lateinit var notificationManager: NotificationManagerCompat
     private var imagePreviewUrl: String? = null
     private var imageMimeType: String? = null
+    private var notificationUserServer: String? = null
 
     override fun doWork(): Result {
         sharedApplication!!.componentApplication.inject(this)
@@ -391,9 +397,54 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
             null
         }
 
-        if (conversation != null && userBeingCalled != null) {
+        if (conversation != null && userBeingCalled != null && !isBlockedOneToOneCaller(conversation)) {
             prepareCallNotificationScreen(conversation)
         }
+    }
+
+    /**
+     * Whether [conversation] is a 1-1 conversation with a user blocked on this device. Group calls are never ignored.
+     */
+    private fun isBlockedOneToOneCaller(conversation: ConversationModel): Boolean {
+        if (conversation.type != ConversationEnums.ConversationType.ROOM_TYPE_ONE_TO_ONE_CALL) {
+            return false
+        }
+        val isBlocked = runBlocking { blockedUsersRepository.isActorIdBlocked(user.id!!, conversation.name) }
+        if (isBlocked) {
+            logger.d(TAG, "Ignoring the call of a blocked user")
+        }
+        return isBlocked
+    }
+
+    private fun isFromBlockedSender(): Boolean {
+        val isMessageNotification = pushMessage.type in setOf(TYPE_CHAT, TYPE_ROOM, TYPE_REMINDER)
+        val sender = pushMessage.notificationUser
+        val actor = notificationSenderActor(sender?.type, sender?.id, notificationUserServer)
+        return isMessageNotification &&
+            actor != null &&
+            runBlocking { blockedUsersRepository.isBlocked(user.id!!, actor) }
+    }
+
+    /**
+     * Shows a silent notification without the name, avatar or content of the blocked sender. Nothing is shown when
+     * the conversation already has a notification.
+     */
+    private fun showBlockedSenderNotification(intent: Intent) {
+        val roomToken = pushMessage.id
+        if (roomToken != null && findNotificationForRoom(context, user, roomToken) != null) {
+            return
+        }
+        val notificationBuilder = createNotificationBuilder(
+            Notification.CATEGORY_MESSAGE,
+            context!!.getString(R.string.nc_blocked_user_notification_title),
+            null,
+            user.baseUrl!!.toUri().host,
+            createUniquePendingIntent(intent),
+            true
+        )
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+        sendNotification(calculateCRC32(System.currentTimeMillis().toString()).toInt(), notificationBuilder.build())
     }
 
     private fun initNcApiAndCredentials() {
@@ -507,7 +558,11 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
                         val threadId = parseThreadId(ncNotification.objectId)
                         threadId?.let { intent.putExtra(KEY_THREAD_ID, it) }
 
-                        showNotification(intent, ncNotification)
+                        if (isFromBlockedSender()) {
+                            showBlockedSenderNotification(intent)
+                        } else {
+                            showNotification(intent, ncNotification)
+                        }
                         catchUpPushedRoom(threadId)
                     }
                 }
@@ -586,6 +641,7 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
                 notificationUser.type = userHashMap["type"]
                 notificationUser.name = userHashMap["name"]
                 pushMessage.notificationUser = notificationUser
+                notificationUserServer = userHashMap["server"]
             } else if (guestHashMap != null && guestHashMap.isNotEmpty()) {
                 notificationUser.id = guestHashMap["id"]
                 notificationUser.type = guestHashMap["type"]

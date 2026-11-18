@@ -25,6 +25,10 @@ import com.google.gson.Gson
 import com.nextcloud.talk.R
 import com.nextcloud.talk.application.NextcloudTalkApplication
 import com.nextcloud.talk.arbitrarystorage.ArbitraryStorageManager
+import com.nextcloud.talk.blockedusers.BlockedActor
+import com.nextcloud.talk.blockedusers.BlockedUsersRepository
+import com.nextcloud.talk.blockedusers.isFromBlockedAuthor
+import com.nextcloud.talk.blockedusers.withoutBlockedAuthors
 import com.nextcloud.talk.chat.data.ChatMessageRepository
 import com.nextcloud.talk.chat.data.io.AudioFocusRequestManager
 import com.nextcloud.talk.chat.data.io.MediaRecorderManager
@@ -291,6 +295,7 @@ class ChatViewModel @AssistedInject constructor(
     private val mediaRecorderManager: MediaRecorderManager,
     private val audioFocusRequestManager: AudioFocusRequestManager,
     private val userManager: UserManager,
+    private val blockedUsersRepository: BlockedUsersRepository,
     @ApplicationScope private val appScope: CoroutineScope,
     @Assisted private val initialUser: User,
     @Assisted private val chatRoomToken: String,
@@ -738,6 +743,14 @@ class ChatViewModel @AssistedInject constructor(
             ConversationUtils.isChannel(conversation, capabilities)
         }.distinctUntilChanged()
 
+    private val blockedActorsFlow: Flow<Set<BlockedActor>> =
+        blockedUsersRepository.observeBlockedActors(initialUser.id!!)
+            .shareIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(CONVERSATION_AND_USER_FLOW_SHARING_TIMEOUT_MS),
+                replay = 1
+            )
+
     // ------------------------------
     // Messages
     // ------------------------------
@@ -772,6 +785,9 @@ class ChatViewModel @AssistedInject constructor(
                         messagesSource
                             .distinctUntilChanged()
                             .mapToChatMessages(user.userId!!)
+                    }
+                    .combine(blockedActorsFlow) { messages, blockedActors ->
+                        messages.withoutBlockedAuthors(blockedActors)
                     }
                     .combine(isChannelFlow) { messages, isChannel ->
                         handleSystemMessages(messages, isChannel)
@@ -1148,6 +1164,9 @@ class ChatViewModel @AssistedInject constructor(
                         }
                     }
             }
+            .combine(blockedActorsFlow) { pinnedMessage, blockedActors ->
+                pinnedMessage?.takeUnless { it.isFromBlockedAuthor(blockedActors) }
+            }
             .onEach { pinnedMessage ->
                 _uiState.update { it.copy(pinnedMessage = pinnedMessage) }
             }
@@ -1186,7 +1205,8 @@ class ChatViewModel @AssistedInject constructor(
         val conversationLastRead: Int,
         val expandedParents: Set<Int> = emptySet(),
         val conversation: ConversationModel? = null,
-        val capabilities: SpreedCapabilityDto? = null
+        val capabilities: SpreedCapabilityDto? = null,
+        val blockedActors: Set<BlockedActor> = emptySet()
     )
 
     // The conversation's own hasCall is the server's authoritative answer to "is a call currently
@@ -1208,10 +1228,11 @@ class ChatViewModel @AssistedInject constructor(
         combine(
             messagesFlow,
             getLastCommonReadFlow.onStart { emit(0) },
-            parentMessagesFlow,
+            combine(parentMessagesFlow, blockedActorsFlow) { parents, blocked -> parents to blocked },
             combine(conversationFlow, _spreedCapabilities) { conv, caps -> conv to caps },
             expandedSystemMessageParents
-        ) { messages, lastCommonRead, parentMap, convAndCaps, expandedParents ->
+        ) { messages, lastCommonRead, parentsAndBlocked, convAndCaps, expandedParents ->
+            val (parentMap, blockedActors) = parentsAndBlocked
             val (conversation, capabilities) = convAndCaps
             CombinedInput(
                 messages,
@@ -1220,7 +1241,8 @@ class ChatViewModel @AssistedInject constructor(
                 conversation.lastReadMessage,
                 expandedParents,
                 conversation,
-                capabilities
+                capabilities,
+                blockedActors
             )
         }
             .throttleLatest(MESSAGES_REBUILD_WINDOW_MS)
@@ -1232,7 +1254,8 @@ class ChatViewModel @AssistedInject constructor(
                     conversationLastRead,
                     expandedParents,
                     conversation,
-                    capabilities
+                    capabilities,
+                    blockedActors
                 ) = input
                 // Mutable so reorderKnownSendSequence() can correct send order in place, the same
                 // way applyMessageGrouping()/applySystemMessageGrouping() annotate grouping in place
@@ -1253,6 +1276,7 @@ class ChatViewModel @AssistedInject constructor(
                 reorderKnownSendSequence(messages)
                 val uiMessages = messages.map { message ->
                     val parent: ChatMessage? = combinedMap[message.parentMessageId]
+                        ?.takeUnless { it.isFromBlockedAuthor(blockedActors) }
                     message.toUiModel(
                         user = user ?: currentUser,
                         chatMessage = message,
@@ -2701,6 +2725,16 @@ class ChatViewModel @AssistedInject constructor(
             chatRepository.hidePinnedMessage(credentials, url, messageId)
             // the banner already follows the local state, the refresh re-asserts the server's
             getRoom(chatRoomToken)
+        }
+    }
+
+    /**
+     * Blocks the author of [message] on this device for the bound account.
+     */
+    fun blockAuthor(message: ChatMessage) {
+        val actor = BlockedActor(message.actorType ?: return, message.actorId ?: return)
+        appScope.launch {
+            blockedUsersRepository.block(initialUser.id!!, actor, message.actorDisplayName)
         }
     }
 

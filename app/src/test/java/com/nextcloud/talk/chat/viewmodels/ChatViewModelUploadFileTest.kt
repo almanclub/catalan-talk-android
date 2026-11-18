@@ -38,6 +38,7 @@ import org.mockito.Mockito
 import org.mockito.Mockito.RETURNS_DEEP_STUBS
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import org.robolectric.Robolectric
@@ -210,6 +211,9 @@ class ChatViewModelUploadFileTest {
             mediaRecorderManager = mock(defaultAnswer = RETURNS_DEEP_STUBS),
             audioFocusRequestManager = mock(defaultAnswer = RETURNS_DEEP_STUBS),
             userManager = mock(defaultAnswer = RETURNS_DEEP_STUBS),
+            blockedUsersRepository = mock {
+                on { observeBlockedActors(any()) } doReturn flowOf(emptySet())
+            },
             appScope = CoroutineScope(Dispatchers.Unconfined),
             initialUser = user,
             chatRoomToken = "room",

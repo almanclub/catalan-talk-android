@@ -15,6 +15,7 @@ import com.nextcloud.talk.R;
 import com.nextcloud.talk.api.NcApi;
 import com.nextcloud.talk.application.NextcloudTalkApplication;
 import com.nextcloud.talk.arbitrarystorage.ArbitraryStorageManager;
+import com.nextcloud.talk.blockedusers.BlockedUsersRepository;
 import com.nextcloud.talk.chat.audio.ChatAudioStore;
 import com.nextcloud.talk.data.database.dao.ChatBlocksDao;
 import com.nextcloud.talk.data.database.dao.ChatMessagesDao;
@@ -77,6 +78,8 @@ public class AccountRemovalWorker extends Worker {
     @Inject AccountCookieInterceptor accountCookieInterceptor;
 
     @Inject ChatAudioStore chatAudioStore;
+
+    @Inject BlockedUsersRepository blockedUsersRepository;
 
     NcApi ncApi;
 
@@ -204,6 +207,7 @@ public class AccountRemovalWorker extends Worker {
 
             try {
                 arbitraryStorageManager.deleteAllEntriesForAccountIdentifier(id);
+                blockedUsersRepository.deleteAllForAccount(id);
                 deleteUser(user);
             } catch (Throwable e) {
                 Log.e(TAG, "error while trying to delete All Entries For Account Identifier", e);

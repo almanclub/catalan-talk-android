@@ -70,6 +70,8 @@ import androidx.emoji2.emojipicker.EmojiPickerView
 import androidx.emoji2.emojipicker.RecentEmojiProvider
 import com.nextcloud.talk.R
 import com.nextcloud.talk.chat.data.model.ChatMessage
+import com.nextcloud.talk.blockedusers.BlockUserConfirmationDialog
+import com.nextcloud.talk.blockedusers.canBlockAuthor
 import com.nextcloud.talk.chat.report.MessageReportReason
 import com.nextcloud.talk.chat.report.isReportable
 import com.nextcloud.talk.data.user.model.User
@@ -139,7 +141,9 @@ data class MessageActionsState(
     val showSave: Boolean,
     val showOpenInFiles: Boolean,
     val showDelete: Boolean,
-    val showReport: Boolean
+    val showReport: Boolean,
+    val showBlock: Boolean,
+    val authorDisplayName: String
 )
 
 @Suppress("LongParameterList", "CyclomaticComplexMethod", "LongMethod")
@@ -274,7 +278,9 @@ internal fun buildMessageActionsState(
         showSave = messageHasFileAttachment,
         showOpenInFiles = messageHasFileAttachment && isOnline,
         showDelete = showMessageDeletionButton && isOnline,
-        showReport = isReportable(message, user?.userId)
+        showReport = isReportable(message, user?.userId),
+        showBlock = canBlockAuthor(message, user?.userId),
+        authorDisplayName = message.actorDisplayName ?: message.actorId.orEmpty()
     )
 }
 
@@ -302,6 +308,7 @@ fun MessageActionsBottomSheet(
     onOpenInFiles: () -> Unit,
     onDelete: () -> Unit,
     onReport: (MessageReportReason) -> Unit,
+    onBlock: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -360,6 +367,7 @@ fun MessageActionsBottomSheet(
                 onOpenInFiles = onOpenInFiles,
                 onDelete = onDelete,
                 onReport = onReport,
+                onBlock = onBlock,
                 onDismiss = onDismiss
             )
         }
@@ -391,10 +399,12 @@ internal fun MessageActionsSheetContent(
     onOpenInFiles: () -> Unit,
     onDelete: () -> Unit,
     onReport: (MessageReportReason) -> Unit,
+    onBlock: () -> Unit,
     onDismiss: () -> Unit
 ) {
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showReportReasons by remember { mutableStateOf(false) }
+    var showBlockConfirmation by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -592,6 +602,13 @@ internal fun MessageActionsSheetContent(
                     onClick = { showReportReasons = true }
                 )
             }
+            if (actionsState.showBlock) {
+                MessageActionItem(
+                    iconRes = R.drawable.baseline_block_24,
+                    text = stringResource(R.string.nc_block_user),
+                    onClick = { showBlockConfirmation = true }
+                )
+            }
             if (actionsState.showDelete) {
                 MessageActionItem(
                     iconRes = R.drawable.ic_delete,
@@ -619,6 +636,17 @@ internal fun MessageActionsSheetContent(
                 onDismiss()
             },
             onDismiss = { showReportReasons = false }
+        )
+    }
+
+    if (showBlockConfirmation) {
+        BlockUserConfirmationDialog(
+            displayName = actionsState.authorDisplayName,
+            onConfirm = {
+                onBlock()
+                onDismiss()
+            },
+            onDismiss = { showBlockConfirmation = false }
         )
     }
 }
@@ -883,6 +911,7 @@ private fun PreviewEmojiBar() {
 @Preview(showBackground = true, name = "Light — actions")
 @Preview(showBackground = true, name = "Dark — actions", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Preview(showBackground = true, name = "RTL · Arabic", locale = "ar")
+@Suppress("LongMethod")
 @Composable
 private fun PreviewMessageActionsSheetContent() {
     val colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
@@ -909,7 +938,9 @@ private fun PreviewMessageActionsSheetContent() {
         showSave = false,
         showOpenInFiles = false,
         showDelete = true,
-        showReport = true
+        showReport = true,
+        showBlock = true,
+        authorDisplayName = "Alice"
     )
     MaterialTheme(colorScheme = colorScheme) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -936,6 +967,7 @@ private fun PreviewMessageActionsSheetContent() {
                 onOpenInFiles = {},
                 onDelete = {},
                 onReport = {},
+                onBlock = {},
                 onDismiss = {}
             )
         }
@@ -971,7 +1003,9 @@ private fun PreviewMessageActionsSheetPinned() {
                     showSave = false,
                     showOpenInFiles = false,
                     showDelete = false,
-                    showReport = false
+                    showReport = false,
+                    showBlock = false,
+                    authorDisplayName = ""
                 ),
                 recentEmojiProvider = ReactionRecentEmojiProvider(LocalContext.current),
                 onEmojiClick = {},
@@ -994,6 +1028,7 @@ private fun PreviewMessageActionsSheetPinned() {
                 onOpenInFiles = {},
                 onDelete = {},
                 onReport = {},
+                onBlock = {},
                 onDismiss = {}
             )
         }

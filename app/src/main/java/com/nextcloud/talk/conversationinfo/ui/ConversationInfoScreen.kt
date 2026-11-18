@@ -124,7 +124,8 @@ data class ConversationInfoScreenCallbacks(
     val onArchiveClick: () -> Unit = {},
     val onLeaveConversationClick: () -> Unit = {},
     val onClearHistoryClick: () -> Unit = {},
-    val onDeleteConversationClick: () -> Unit = {}
+    val onDeleteConversationClick: () -> Unit = {},
+    val onBlockUserClick: () -> Unit = {}
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1075,6 +1076,20 @@ private fun DangerZoneSection(state: ConversationInfoUiState, callbacks: Convers
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+    }
+
+    if (state.blockableUser != null) {
+        ClickableIconRow(
+            title = if (state.isUserBlocked) {
+                stringResource(R.string.nc_unblock_user)
+            } else {
+                stringResource(R.string.nc_block_user)
+            },
+            iconRes = R.drawable.baseline_block_24,
+            iconTint = errorColor,
+            titleColor = errorColor,
+            onClick = callbacks.onBlockUserClick
         )
     }
 

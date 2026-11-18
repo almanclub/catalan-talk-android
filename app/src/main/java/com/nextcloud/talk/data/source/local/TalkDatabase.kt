@@ -19,9 +19,11 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nextcloud.talk.R
+import com.nextcloud.talk.data.database.dao.BlockedUsersDao
 import com.nextcloud.talk.data.database.dao.ChatBlocksDao
 import com.nextcloud.talk.data.database.dao.ChatMessagesDao
 import com.nextcloud.talk.data.database.dao.ConversationsDao
+import com.nextcloud.talk.data.database.model.BlockedUserEntity
 import com.nextcloud.talk.data.database.model.ChatBlockEntity
 import com.nextcloud.talk.data.database.model.ChatMessageEntity
 import com.nextcloud.talk.data.database.model.ConversationEntity
@@ -49,9 +51,10 @@ import java.util.Locale
         ArbitraryStorageEntity::class,
         ConversationEntity::class,
         ChatMessageEntity::class,
-        ChatBlockEntity::class
+        ChatBlockEntity::class,
+        BlockedUserEntity::class
     ],
-    version = 26,
+    version = 27,
     autoMigrations = [
         AutoMigration(from = 9, to = 10),
         AutoMigration(from = 16, to = 17, spec = AutoMigration16To17::class),
@@ -61,7 +64,8 @@ import java.util.Locale
         AutoMigration(from = 22, to = 23),
         AutoMigration(from = 23, to = 24),
         AutoMigration(from = 24, to = 25),
-        AutoMigration(from = 25, to = 26)
+        AutoMigration(from = 25, to = 26),
+        AutoMigration(from = 26, to = 27)
     ],
     exportSchema = true
 )
@@ -84,6 +88,7 @@ abstract class TalkDatabase : RoomDatabase() {
     abstract fun chatMessagesDao(): ChatMessagesDao
     abstract fun chatBlocksDao(): ChatBlocksDao
     abstract fun arbitraryStoragesDao(): ArbitraryStoragesDao
+    abstract fun blockedUsersDao(): BlockedUsersDao
 
     companion object {
         const val TAG = "TalkDatabase"
