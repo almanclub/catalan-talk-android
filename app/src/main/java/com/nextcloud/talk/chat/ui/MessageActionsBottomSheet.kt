@@ -70,6 +70,7 @@ import androidx.emoji2.emojipicker.EmojiPickerView
 import androidx.emoji2.emojipicker.RecentEmojiProvider
 import com.nextcloud.talk.R
 import com.nextcloud.talk.chat.data.model.ChatMessage
+import com.nextcloud.talk.chat.forward.isForwardableFile
 import com.nextcloud.talk.blockedusers.BlockUserConfirmationDialog
 import com.nextcloud.talk.blockedusers.canBlockAuthor
 import com.nextcloud.talk.chat.report.MessageReportReason
@@ -231,6 +232,9 @@ internal fun buildMessageActionsState(
     val hasUserActorId = message.actorType == "users" && message.actorId != conversation?.actorId
 
     val isClassifiedRoom = conversation != null && ConversationUtils.isClassified(conversation, spreedCapabilities)
+    val canForwardText = ChatMessage.MessageType.REGULAR_TEXT_MESSAGE == messageType &&
+        !(message.isDeletedCommentMessage || message.isDeleted)
+    val canForwardFile = isForwardableFile(message) && conversation?.remoteServer.isNullOrEmpty()
 
     return MessageActionsState(
         showEmojiBar = showEmojiBar,
@@ -246,8 +250,7 @@ internal fun buildMessageActionsState(
             isOnline &&
             !isClassifiedRoom,
         showOpenThread = message.isThread && conversationThreadId == null,
-        showForward = ChatMessage.MessageType.REGULAR_TEXT_MESSAGE == messageType &&
-            !(message.isDeletedCommentMessage || message.isDeleted) &&
+        showForward = (canForwardText || canForwardFile) &&
             isOnline &&
             !isClassifiedRoom,
         showEdit = isMessageEditable,

@@ -73,7 +73,8 @@ enum class SpreedFeatures(val value: String) {
     CONVERSATION_TAGS("conversation-tags"),
     PROMOTE_DEMOTE_OWNER("promote-demote-owner"),
     NOTE_TO_SELF("note-to-self"),
-    CALL_END_TO_END_ENCRYPTION("call-end-to-end-encryption")
+    CALL_END_TO_END_ENCRYPTION("call-end-to-end-encryption"),
+    MEDIA_CAPTION("media-caption")
 }
 
 @Suppress("TooManyFunctions")

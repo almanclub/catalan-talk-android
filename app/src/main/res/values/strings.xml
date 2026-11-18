@@ -731,6 +731,10 @@ How to translate with transifex:
 
     <string name="nc_upload_failed_notification_title">Failure</string>
     <string name="nc_upload_failed_notification_text">Failed to upload %1$s</string>
+    <string name="nc_forward_files_failed_title">Forwarding to %1$s failed</string>
+    <string name="nc_forward_files_failed_text">Not forwarded: %1$s</string>
+    <string name="nc_forward_files_not_shared_with">Not shared with: %1$s</string>
+    <string name="nc_forward_file_read_only_notice">📎 %1$s was shared with you as a read-only file. Open \"Shared with you\" in Files to view it.</string>
     <string name="nc_file_storage_permission">Permission for file access is required</string>
 
     <!-- Video -->

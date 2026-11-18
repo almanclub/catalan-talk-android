@@ -25,6 +25,7 @@ import com.nextcloud.talk.models.json.generic.GenericOverall
 import com.nextcloud.talk.models.json.hovercard.HoverCardOverall
 import com.nextcloud.talk.models.json.invitation.InvitationOverall
 import com.nextcloud.talk.models.json.participants.AddParticipantOverall
+import com.nextcloud.talk.models.json.participants.ParticipantsOverall
 import com.nextcloud.talk.models.json.participants.TalkBanDto
 import com.nextcloud.talk.models.json.participants.TalkBanOverall
 import com.nextcloud.talk.models.json.passwordResult.PasswordResultOverall
@@ -56,6 +57,7 @@ import retrofit2.http.Field
 import retrofit2.http.FieldMap
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
+import retrofit2.http.HTTP
 import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.POST
@@ -595,6 +597,36 @@ interface NcApiCoroutines {
         @Url url: String,
         @Body body: RequestBody
     ): Response<GenericOverall>
+
+    // WebDAV COPY on the server. overwrite is "T" or "F".
+    @HTTP(method = "COPY")
+    suspend fun copyFile(
+        @Header("Authorization") authorization: String,
+        @Url url: String,
+        @Header("Destination") destinationUrl: String,
+        @Header("Overwrite") overwrite: String
+    ): Response<Unit>
+
+    @HTTP(method = "MKCOL")
+    suspend fun createFolder(@Header("Authorization") authorization: String, @Url url: String): Response<Unit>
+
+    // Url is: /ocs/v2.php/apps/files_sharing/api/v1/shares. Fields that are null are not sent.
+    @Suppress("LongParameterList")
+    @FormUrlEncoded
+    @POST
+    suspend fun createShare(
+        @Header("Authorization") authorization: String,
+        @Url url: String,
+        @Field("path") path: String,
+        @Field("shareType") shareType: Int,
+        @Field("shareWith") shareWith: String,
+        @Field("permissions") permissions: Int?,
+        @Field("talkMetaData") talkMetaData: String?,
+        @Field("referenceId") referenceId: String?
+    ): GenericOverall
+
+    @GET
+    suspend fun getParticipants(@Header("Authorization") authorization: String, @Url url: String): ParticipantsOverall
 
     @FormUrlEncoded
     @POST

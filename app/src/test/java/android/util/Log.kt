@@ -60,4 +60,11 @@ object Log {
 
         return 1
     }
+
+    @JvmStatic
+    fun w(tag: String, msg: String, tr: Throwable): Int {
+        println("WARN: $tag: $msg: $tr")
+
+        return 1
+    }
 }

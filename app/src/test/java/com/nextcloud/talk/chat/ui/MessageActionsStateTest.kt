@@ -8,7 +8,9 @@ package com.nextcloud.talk.chat.ui
 
 import com.nextcloud.talk.chat.data.model.ChatMessage
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.models.domain.ConversationModel
 import com.nextcloud.talk.models.json.capabilities.SpreedCapabilityDto
+import com.nextcloud.talk.models.json.conversations.ConversationDto
 import com.nextcloud.talk.utils.DateUtils
 import org.junit.Assert
 import org.junit.Test
@@ -18,11 +20,16 @@ class MessageActionsStateTest {
 
     private val dateUtils = Mockito.mock(DateUtils::class.java)
 
-    private fun buildStateFor(message: ChatMessage) =
+    private val user = User().apply {
+        id = 1L
+        userId = "alice"
+    }
+
+    private fun buildStateFor(message: ChatMessage, conversation: ConversationModel? = null) =
         buildMessageActionsState(
             message = message,
-            user = User().apply { userId = "alice" },
-            conversation = null,
+            user = user,
+            conversation = conversation,
             hasChatPermission = true,
             hasReactPermission = true,
             spreedCapabilities = SpreedCapabilityDto(),
@@ -88,5 +95,40 @@ class MessageActionsStateTest {
     fun showBlock_falseForGuestMessage() {
         val msg = ChatMessage(jsonMessageId = 4, actorType = "guests", actorId = "abc123", message = "Hello world")
         Assert.assertFalse(buildStateFor(msg).showBlock)
+    }
+
+    private fun fileMessage(path: String = "Talk/photo.jpg") =
+        ChatMessage(
+            jsonMessageId = 4,
+            actorType = "users",
+            actorId = "bob",
+            message = "{file}",
+            messageParameters = hashMapOf<String?, HashMap<String?, String?>>(
+                "file" to hashMapOf("type" to "file", "name" to "photo.jpg", "path" to path)
+            )
+        )
+
+    @Test
+    fun showForward_trueForSentFile() {
+        Assert.assertTrue(buildStateFor(fileMessage()).showForward)
+    }
+
+    @Test
+    fun showForward_falseForFileStillUploading() {
+        Assert.assertFalse(buildStateFor(fileMessage().apply { isTemporary = true }).showForward)
+    }
+
+    @Test
+    fun showForward_falseForFileWithoutPath() {
+        Assert.assertFalse(buildStateFor(fileMessage(path = "")).showForward)
+    }
+
+    @Test
+    fun showForward_falseForFileOfConversationHostedElsewhere() {
+        val conversation = ConversationModel.mapToConversationModel(
+            ConversationDto(token = "abc", remoteServer = "https://other.example.com"),
+            user
+        )
+        Assert.assertFalse(buildStateFor(fileMessage(), conversation).showForward)
     }
 }

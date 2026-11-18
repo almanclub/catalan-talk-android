@@ -78,6 +78,7 @@ import com.nextcloud.talk.invitation.InvitationsActivity
 import com.nextcloud.talk.jobs.AccountRemovalWorker
 import com.nextcloud.talk.jobs.ContactAddressBookWorker.Companion.run
 import com.nextcloud.talk.jobs.DeleteConversationWorker
+import com.nextcloud.talk.jobs.ForwardFilesWorker
 import com.nextcloud.talk.jobs.LeaveConversationWorker
 import com.nextcloud.talk.jobs.RemoteWipeSuccessWorker
 import com.nextcloud.talk.jobs.UploadAndShareFilesWorker
@@ -114,6 +115,8 @@ import com.nextcloud.talk.utils.bundle.BundleKeys
 import com.nextcloud.talk.utils.bundle.BundleKeys.ADD_ADDITIONAL_ACCOUNT
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_CALL_VOICE_ONLY
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_CONVERSATION_NAME
+import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_FORWARD_FILE_MESSAGE_IDS
+import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_FORWARD_FILE_NAMES
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_FORWARD_HIDE_SOURCE_ROOM
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_FORWARD_MSG_FLAG
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_FORWARD_MSG_TEXT
@@ -246,14 +249,20 @@ class ConversationsListActivity : BaseActivity() {
     // here would fall back to MainActivity. Instead leave the forward mode and return to the source chat.
     private fun cancelForwarding() {
         val sourceRoomToken = intent.getStringExtra(KEY_FORWARD_HIDE_SOURCE_ROOM)
-        intent.removeExtra(KEY_FORWARD_MSG_FLAG)
-        intent.removeExtra(KEY_FORWARD_MSG_TEXT)
-        intent.removeExtra(KEY_FORWARD_HIDE_SOURCE_ROOM)
-        forwardMessageState.value = false
-        conversationsListViewModel.setHideRoomToken(null)
+        leaveForwardMode()
         if (sourceRoomToken != null) {
             startActivity(ChatActivity.createIntent(context, currentUser.id!!, sourceRoomToken))
         }
+    }
+
+    private fun leaveForwardMode() {
+        intent.removeExtra(KEY_FORWARD_MSG_FLAG)
+        intent.removeExtra(KEY_FORWARD_MSG_TEXT)
+        intent.removeExtra(KEY_FORWARD_HIDE_SOURCE_ROOM)
+        intent.removeExtra(KEY_FORWARD_FILE_MESSAGE_IDS)
+        intent.removeExtra(KEY_FORWARD_FILE_NAMES)
+        forwardMessageState.value = false
+        conversationsListViewModel.setHideRoomToken(null)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -947,8 +956,7 @@ class ConversationsListActivity : BaseActivity() {
                 }
             } else if (forwardMessage) {
                 if (hasChatPermission && !isReadOnlyConversation(selectedConversation!!)) {
-                    openConversation(intent.getStringExtra(KEY_FORWARD_MSG_TEXT))
-                    forwardMessageState.value = false
+                    forwardTo(selectedConversation!!)
                 } else {
                     showSnackbar(getString(R.string.send_to_forbidden))
                 }
@@ -973,6 +981,67 @@ class ConversationsListActivity : BaseActivity() {
     private fun isReadOnlyConversation(conversation: ConversationModel): Boolean =
         conversation.conversationReadOnlyState ===
             ConversationEnums.ConversationReadOnlyState.CONVERSATION_READ_ONLY
+
+    private fun forwardTo(conversation: ConversationModel) {
+        val fileMessageIds = intent.getLongArrayExtra(KEY_FORWARD_FILE_MESSAGE_IDS)
+        if (fileMessageIds == null) {
+            openConversation(intent.getStringExtra(KEY_FORWARD_MSG_TEXT))
+            forwardMessageState.value = false
+        } else {
+            val fileNames = intent.getStringArrayListExtra(KEY_FORWARD_FILE_NAMES).orEmpty()
+            showForwardFilesConfirmDialog(conversation, fileMessageIds, fileNames)
+        }
+    }
+
+    private fun showForwardFilesConfirmDialog(
+        conversation: ConversationModel,
+        messageIds: LongArray,
+        fileNames: List<String>
+    ) {
+        val question = if (messageIds.size == 1) {
+            R.string.nc_upload_confirm_send_single
+        } else {
+            R.string.nc_upload_confirm_send_multiple
+        }
+        val dialogBuilder = MaterialAlertDialogBuilder(this)
+            .setIcon(viewThemeUtils.dialog.colorMaterialAlertDialogIcon(context, R.drawable.forward_24))
+            .setTitle(getString(question, conversation.displayName))
+            .setMessage(fileNames.joinToString("\n"))
+            .setPositiveButton(R.string.nc_yes) { _, _ -> forwardFiles(conversation, messageIds, fileNames, false) }
+            .setNeutralButton(R.string.send_without_notification) { _, _ ->
+                forwardFiles(conversation, messageIds, fileNames, true)
+            }
+            .setNegativeButton(R.string.nc_cancel, null)
+
+        viewThemeUtils.dialog.colorMaterialAlertDialogBackground(this, dialogBuilder)
+        val dialog = dialogBuilder.show()
+        viewThemeUtils.platform.colorTextButtons(
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE),
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL),
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+        )
+    }
+
+    private fun forwardFiles(
+        conversation: ConversationModel,
+        messageIds: LongArray,
+        fileNames: List<String>,
+        silent: Boolean
+    ) {
+        ForwardFilesWorker.enqueue(
+            context = context,
+            userId = currentUser.id!!,
+            sourceRoomToken = intent.getStringExtra(KEY_FORWARD_HIDE_SOURCE_ROOM).orEmpty(),
+            messageIds = messageIds,
+            fileNames = fileNames,
+            targetRoomToken = conversation.token,
+            targetRoomName = conversation.displayName,
+            isTargetHostedElsewhere = !conversation.remoteServer.isNullOrEmpty(),
+            silent = silent
+        )
+        leaveForwardMode()
+        openConversation()
+    }
 
     private fun handleSharedData() {
         collectDataFromIntent()

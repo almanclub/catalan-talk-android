@@ -113,6 +113,7 @@ import com.nextcloud.talk.chat.audio.openMessageIntent
 import com.nextcloud.talk.chat.audio.toChatAudioTrack
 import com.nextcloud.talk.chat.data.model.ChatMessage
 import com.nextcloud.talk.chat.data.model.FileParameters
+import com.nextcloud.talk.chat.forward.isForwardableFile
 import com.nextcloud.talk.chat.report.MessageReport
 import com.nextcloud.talk.chat.report.MessageReportReason
 import com.nextcloud.talk.chat.report.MessageReportViewModel
@@ -129,6 +130,7 @@ import com.nextcloud.talk.chat.ui.ShowReactionsModalBottomSheet
 import com.nextcloud.talk.chat.ui.TempMessageActionsBottomSheet
 import com.nextcloud.talk.chat.ui.TypingIndicatorBanner
 import com.nextcloud.talk.chat.ui.buildMessageActionsState
+import com.nextcloud.talk.chat.ui.model.MessageTypeContent
 import com.nextcloud.talk.chat.viewmodels.ChatViewModel
 import com.nextcloud.talk.chat.viewmodels.MessageInputViewModel
 import com.nextcloud.talk.conversationinfo.ConversationInfoActivity
@@ -3487,8 +3489,14 @@ class ChatActivity :
     fun forwardMessage(message: ChatMessage?) {
         val bundle = Bundle()
         bundle.putBoolean(BundleKeys.KEY_FORWARD_MSG_FLAG, true)
-        bundle.putString(BundleKeys.KEY_FORWARD_MSG_TEXT, message?.message)
         bundle.putString(BundleKeys.KEY_FORWARD_HIDE_SOURCE_ROOM, roomToken)
+        if (message != null && isForwardableFile(message)) {
+            val files = filesToForward(message)
+            bundle.putLongArray(BundleKeys.KEY_FORWARD_FILE_MESSAGE_IDS, files.map { it.first }.toLongArray())
+            bundle.putStringArrayList(BundleKeys.KEY_FORWARD_FILE_NAMES, ArrayList(files.map { it.second }))
+        } else {
+            bundle.putString(BundleKeys.KEY_FORWARD_MSG_TEXT, message?.message)
+        }
 
         val intent = Intent(this, ConversationsListActivity::class.java)
         intent.putExtras(bundle)
@@ -3496,6 +3504,20 @@ class ChatActivity :
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         startActivity(intent)
         finish()
+    }
+
+    /** The ids and names of the files of [message] and of the files sent together with it, in their sent order. */
+    private fun filesToForward(message: ChatMessage): List<Pair<Long, String>> {
+        val group = chatViewModel.uiState.value.items
+            .filterIsInstance<ChatViewModel.ChatItem.MediaGroupItem>()
+            .firstOrNull { it.containsMessage(message.jsonMessageId) }
+        val groupFiles = group?.messages.orEmpty()
+            .filter { !it.isDeleted && it.content !is MessageTypeContent.UploadingMedia }
+            .sortedWith(
+                compareBy({ it.referenceId?.substringAfterLast('-')?.toIntOrNull() ?: Int.MAX_VALUE }, { it.id })
+            )
+            .mapNotNull { ui -> ui.messageParameters["file"]?.get("name")?.let { ui.id.toLong() to it } }
+        return groupFiles.ifEmpty { listOf(message.jsonMessageId.toLong() to message.fileParameters.name) }
     }
 
     fun remindMeLater(message: ChatMessage?) {
