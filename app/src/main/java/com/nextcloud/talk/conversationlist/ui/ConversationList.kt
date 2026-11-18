@@ -732,8 +732,12 @@ private fun ContactResultListItem(
     onClick: () -> Unit
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
-    val avatarUrl = remember(currentUser.baseUrl, participant.actorId) {
-        ApiUtils.getUrlForAvatar(currentUser.baseUrl, participant.actorId, false)
+    val avatarUrl = remember(currentUser.baseUrl, participant.actorId, participant.actorType) {
+        if (participant.actorType == ParticipantDto.ActorType.FEDERATED) {
+            ApiUtils.getUrlForFederatedAvatarWithoutRoom(currentUser.baseUrl!!, participant.actorId ?: "", 0, false)
+        } else {
+            ApiUtils.getUrlForAvatar(currentUser.baseUrl, participant.actorId, false)
+        }
     }
     Row(
         modifier = Modifier

@@ -11,6 +11,7 @@ package com.nextcloud.talk.contacts
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.remember
@@ -28,6 +29,7 @@ import com.nextcloud.talk.dagger.modules.assistedViewModels
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.extensions.getParcelableArrayListExtraProvider
 import com.nextcloud.talk.models.json.autocomplete.AutocompleteUserDto
+import com.nextcloud.talk.utils.CapabilitiesUtil
 import com.nextcloud.talk.utils.bundle.BundleKeys
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -51,6 +53,11 @@ class ContactsActivity : BaseActivity() {
         setContent {
             val isAddParticipants = intent.getBooleanExtra(BundleKeys.KEY_ADD_PARTICIPANTS, false)
             val hideAlreadyAddedParticipants = intent.getBooleanExtra(KEY_HIDE_ALREADY_EXISTING_PARTICIPANTS, false)
+            if (!isAddParticipants &&
+                CapabilitiesUtil.canInviteFederatedUsers(user.capabilities?.spreedCapability)
+            ) {
+                contactsViewModel.updateShareTypes(listOf(ShareType.Remote.shareType))
+            }
             contactsViewModel.getContactsFromSearchParams()
             contactsViewModel.updateIsAddParticipants(isAddParticipants)
             contactsViewModel.hideAlreadyAddedParticipants(hideAlreadyAddedParticipants)
@@ -89,13 +96,20 @@ class ContactsActivity : BaseActivity() {
             // Only while visible: a conversation created meanwhile is still opened when the screen is started again.
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 contactsViewModel.roomViewState.collect { state ->
-                    if (state is ContactsViewModel.RoomUiState.Success) {
-                        state.conversation?.token?.let { token ->
-                            val chatIntent = ChatActivity.createIntent(this@ContactsActivity, state.userId, token)
-                            chatIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            startActivity(chatIntent)
+                    when (state) {
+                        is ContactsViewModel.RoomUiState.Success -> {
+                            state.conversation?.token?.let { token ->
+                                val chatIntent = ChatActivity.createIntent(this@ContactsActivity, state.userId, token)
+                                chatIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                startActivity(chatIntent)
+                            }
+                            contactsViewModel.clearRoomState()
                         }
-                        contactsViewModel.clearRoomState()
+                        is ContactsViewModel.RoomUiState.Error -> {
+                            Toast.makeText(this@ContactsActivity, state.reason.message, Toast.LENGTH_LONG).show()
+                            contactsViewModel.clearRoomState()
+                        }
+                        is ContactsViewModel.RoomUiState.None -> {}
                     }
                 }
             }

@@ -394,6 +394,16 @@ object CapabilitiesUtil {
             user.capabilities!!.spreedCapability!!.config!!["federation"] != null &&
             user.capabilities!!.spreedCapability!!.config!!["federation"]!!.containsKey("enabled")
 
+    /**
+     * Whether users of other servers can be found and invited: federation is enabled with outgoing invitations.
+     */
+    fun canInviteFederatedUsers(spreedCapabilities: SpreedCapabilityDto?): Boolean {
+        val federation = spreedCapabilities?.config?.get("federation")
+        return hasSpreedFeatureCapability(spreedCapabilities, SpreedFeatures.FEDERATION_V1) &&
+            federation?.get("enabled").toString().toBoolean() &&
+            federation?.get("outgoing-enabled").toString().toBoolean()
+    }
+
     // endregion
 
     //region ThemingCapabilities

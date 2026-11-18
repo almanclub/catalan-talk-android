@@ -2408,6 +2408,7 @@ class ChatViewModel @AssistedInject constructor(
             require(fileUri.isNotEmpty())
 
             val internalConversationId = "${currentUser.id}@$chatRoomToken"
+            val conversation = _uiState.value.conversation
             val enqueueUpload = {
                 UploadAndShareFilesWorker.upload(
                     userId = currentUser.id!!,
@@ -2418,7 +2419,9 @@ class ChatViewModel @AssistedInject constructor(
                     referenceId = referenceId,
                     internalConversationId = internalConversationId,
                     compressImages = compressImages,
-                    allowUpdate = allowUpdate
+                    allowUpdate = allowUpdate,
+                    isHostedElsewhere = !conversation?.remoteServer.isNullOrEmpty(),
+                    mayHaveRemoteMembers = mayHaveRemoteMembers(conversation)
                 )
             }
 
@@ -2461,6 +2464,11 @@ class ChatViewModel @AssistedInject constructor(
             Log.e(javaClass.simpleName, "Something went wrong when trying to upload file", e)
         }
     }
+
+    // The capabilities of this account: those of a conversation hosted elsewhere are of its host.
+    private fun mayHaveRemoteMembers(conversation: ConversationModel?): Boolean =
+        conversation?.type in conversationTypesWithRemoteMembers &&
+            hasSpreedFeatureCapability(currentUser.capabilities?.spreedCapability, SpreedFeatures.FEDERATION_V1)
 
     private fun resolveFileInfo(fileUri: String): Triple<String, String?, Long> {
         val uri = fileUri.toUri()
@@ -2752,6 +2760,10 @@ class ChatViewModel @AssistedInject constructor(
     companion object {
         private val TAG = ChatViewModel::class.java.simpleName
         private const val MILLIS_PER_SECOND = 1000L
+        private val conversationTypesWithRemoteMembers = setOf(
+            ConversationEnums.ConversationType.ROOM_GROUP_CALL,
+            ConversationEnums.ConversationType.ROOM_PUBLIC_CALL
+        )
 
         /** Enough of the note to self to cover what a share of ours could have landed behind. */
         private const val SHARE_LOOKUP_LIMIT = 20

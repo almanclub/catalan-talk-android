@@ -14,6 +14,7 @@ import com.nextcloud.talk.models.json.participants.ParticipantDto
 
 object ConversationUtils {
     private val TAG = ConversationUtils::class.java.simpleName
+    private const val FEDERATED_DIRECT_MESSAGE_PREFIX = "dm:"
 
     fun isPublic(conversation: ConversationModel): Boolean =
         ConversationEnums.ConversationType.ROOM_PUBLIC_CALL == conversation.type
@@ -54,7 +55,16 @@ object ConversationUtils {
 
     fun isNameEditable(conversation: ConversationModel, spreedCapabilities: SpreedCapabilityDto): Boolean =
         canModerate(conversation, spreedCapabilities) &&
-            ConversationEnums.ConversationType.ROOM_TYPE_ONE_TO_ONE_CALL != conversation.type
+            ConversationEnums.ConversationType.ROOM_TYPE_ONE_TO_ONE_CALL != conversation.type &&
+            !isFederatedDirectMessage(conversation)
+
+    /**
+     * Whether [conversation] is a 1-1 conversation with a user of another server, which the server stores as a group
+     * conversation named "dm:...".
+     */
+    fun isFederatedDirectMessage(conversation: ConversationModel?): Boolean =
+        conversation?.type == ConversationEnums.ConversationType.ROOM_GROUP_CALL &&
+            conversation.name.startsWith(FEDERATED_DIRECT_MESSAGE_PREFIX)
 
     fun isNoteToSelfConversation(currentConversation: ConversationModel?): Boolean =
         currentConversation != null &&

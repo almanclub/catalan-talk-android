@@ -11,6 +11,6 @@ enum class ShareType(val shareType: String) {
     User("0"),
     Group("1"),
     Email("4"),
-    Remote("5"),
+    Remote("6"),
     Circle("7")
 }

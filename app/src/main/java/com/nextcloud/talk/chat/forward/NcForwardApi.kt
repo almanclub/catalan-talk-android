@@ -114,16 +114,16 @@ class NcForwardApi(
         )
     }
 
-    override suspend fun sendMessage(message: String, silent: Boolean) {
+    override suspend fun sendMessage(message: String, silent: Boolean, referenceId: String?, replyTo: Int) {
         val chatApiVersion = ApiUtils.getChatApiVersion(user.capabilities!!.spreedCapability!!, intArrayOf(1))
         ncApiCoroutines.sendChatMessage(
             credentials,
             ApiUtils.getUrlForChat(chatApiVersion, baseUrl, roomToken),
             message,
             user.displayName.orEmpty(),
-            0,
+            replyTo,
             silent,
-            SendMessageUtils().generateReferenceId(),
+            referenceId ?: SendMessageUtils().generateReferenceId(),
             null
         )
     }

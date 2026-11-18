@@ -33,6 +33,10 @@ import com.nextcloud.talk.R
 import com.nextcloud.talk.api.NcApi
 import com.nextcloud.talk.api.NcApiCoroutines
 import com.nextcloud.talk.application.NextcloudTalkApplication
+import com.nextcloud.talk.chat.forward.NcForwardApi
+import com.nextcloud.talk.chat.forward.ReadOnlyRecipient
+import com.nextcloud.talk.chat.forward.ReadOnlySharer
+import com.nextcloud.talk.chat.forward.ReadOnlyUpload
 import com.nextcloud.talk.data.database.dao.ChatMessagesDao
 import com.nextcloud.talk.data.database.model.SendStatus
 import com.nextcloud.talk.data.user.model.User
@@ -45,6 +49,7 @@ import com.nextcloud.talk.upload.normal.FileUploader
 import com.nextcloud.talk.users.UserManager
 import com.nextcloud.talk.utils.ApiUtils
 import com.nextcloud.talk.utils.CapabilitiesUtil
+import com.nextcloud.talk.utils.CloudIdUtils
 import com.nextcloud.talk.utils.FileUtils
 import com.nextcloud.talk.utils.ImageCompressor
 import com.nextcloud.talk.utils.NotificationUtils
@@ -71,6 +76,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @AutoInjector(NextcloudTalkApplication::class)
+@Suppress("TooManyFunctions")
 class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerParameters) :
     Worker(context, workerParameters),
     OnDataTransferProgressListener {
@@ -112,6 +118,9 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
     private var internalConversationId: String? = null
     private var uploadDisposable: Disposable? = null
     private var uploadLatch: CountDownLatch? = null
+    private val readOnlySharer by lazy {
+        ReadOnlySharer(NcForwardApi(ncApi, ncApiCoroutines, currentUser, roomToken))
+    }
 
     /**
      * WorkManager's own `isStopped`/`onStopped()` only becomes true/fires after
@@ -169,6 +178,8 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
             if (inputData.getBoolean(COMPRESS_IMAGES, false)) {
                 sourceFileUri = compressMediaIfPossible(sourceFileUri)
             }
+
+            readOnlyRecipients()?.let { return shareReadOnly(sourceFileUri, metaData, it) }
 
             val remotePath = getRemotePath(currentUser)
 
@@ -358,19 +369,7 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
             val predictedName = resolveFinalFileName(fileName, probeResponse.ocs?.data!!)
             val tempRemotePath = "/$draftFolderPath/$uploadId-$fileName"
 
-            val uploadSuccess = if (isChunkedUploading) {
-                val mimeType = context.contentResolver.getType(sourceFileUri)?.toMediaTypeOrNull()
-                chunkedFileUploader = ChunkedFileUploader(
-                    okHttpClient,
-                    currentUser,
-                    this@UploadAndShareFilesWorker,
-                    ncApiCoroutines
-                )
-                chunkedFileUploader!!.upload(file!!, mimeType, tempRemotePath)
-            } else {
-                FileUploader(okHttpClient, context, currentUser, roomToken, ncApi, file!!, ncApiCoroutines)
-                    .uploadToConversationSubfolder(sourceFileUri, tempRemotePath)
-            }
+            val uploadSuccess = putFile(sourceFileUri, tempRemotePath)
 
             if (!uploadSuccess || isStopped || isCancelled()) {
                 return@runBlocking false
@@ -394,6 +393,66 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
                 .onFailure { Log.e(TAG, "Failed to finalize uploaded attachment", it) }
                 .isSuccess
         }
+
+    /**
+     * Uploads [file] to [remotePath] in the user's storage.
+     */
+    private suspend fun putFile(sourceFileUri: Uri, remotePath: String): Boolean {
+        val source = file ?: return false
+        return if (isChunkedUploading) {
+            val mimeType = context.contentResolver.getType(sourceFileUri)?.toMediaTypeOrNull()
+            ChunkedFileUploader(okHttpClient, currentUser, this, ncApiCoroutines)
+                .also { chunkedFileUploader = it }
+                .upload(source, mimeType, remotePath)
+        } else {
+            FileUploader(okHttpClient, context, currentUser, roomToken, ncApi, source, ncApiCoroutines)
+                .uploadToConversationSubfolder(sourceFileUri, remotePath)
+        }
+    }
+
+    /**
+     * The users to share the file with read-only, when no other member of the conversation can open its attachments,
+     * or null to attach the file.
+     */
+    private fun readOnlyRecipients(): List<ReadOnlyRecipient>? {
+        val isHostedElsewhere = inputData.getBoolean(IS_HOSTED_ELSEWHERE, false)
+        if (!isHostedElsewhere && !inputData.getBoolean(MAY_HAVE_REMOTE_MEMBERS, false)) {
+            return null
+        }
+        val userId = currentUser.userId!!
+        val ownCloudId = CloudIdUtils.ownCloudId(userId, currentUser.baseUrl!!)
+        return runBlocking { readOnlySharer.uploadRecipients(userId, ownCloudId, isHostedElsewhere) }
+    }
+
+    /**
+     * Uploads the file to a new folder, shares it read-only with [recipients] and tells them about it in a message,
+     * which replaces the placeholder of the upload.
+     */
+    @Suppress("Detekt.ReturnCount")
+    private fun shareReadOnly(sourceFileUri: Uri, metaData: String?, recipients: List<ReadOnlyRecipient>): Result {
+        file?.let { isChunkedUploading = it.length() > CHUNK_UPLOAD_THRESHOLD_SIZE }
+        val notice = context.getString(R.string.nc_forward_file_read_only_notice, fileName)
+        val upload = ReadOnlyUpload(fileName, notice, metaData, referenceId)
+        val unreached = try {
+            runBlocking {
+                readOnlySharer.shareUpload(upload, recipients) {
+                    check(putFile(sourceFileUri, it) && !isStopped && !isCancelled())
+                }
+            }
+        } catch (e: IllegalStateException) {
+            if (isStopped || isCancelled()) {
+                return Result.failure()
+            }
+            throw e
+        } ?: return failUpload()
+
+        if (unreached.isNotEmpty()) {
+            showNotSharedWithNotification(unreached)
+        }
+        updatePlaceholderStatus(SendStatus.SENT_PENDING_ACK)
+        _uploadCompletedFlow.tryEmit(roomToken)
+        return Result.success()
+    }
 
     @SuppressLint("CheckResult")
     private fun shareFile(remotePath: String, metaData: String?): Boolean =
@@ -463,6 +522,21 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
         notificationManager.notify(SystemClock.uptimeMillis().toInt(), failureNotification)
     }
 
+    private fun showNotSharedWithNotification(unreached: List<String>) {
+        val text = context.getString(R.string.nc_forward_files_not_shared_with, unreached.joinToString())
+        val notification = NotificationCompat.Builder(
+            context,
+            NotificationUtils.NotificationChannels.NOTIFICATION_CHANNEL_UPLOADS.name
+        )
+            .setContentTitle(fileName)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(R.drawable.baseline_error_24)
+            .setGroup(NotificationUtils.KEY_UPLOAD_GROUP)
+            .build()
+        notificationManager.notify(SystemClock.uptimeMillis().toInt(), notification)
+    }
+
     // The upload can fail before the file name is known, e.g. when its account does not exist anymore.
     private fun failedFileName(): String =
         if (::fileName.isInitialized) {
@@ -484,6 +558,8 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
         const val PROGRESS_KEY = "UPLOAD_PROGRESS"
         private const val COMPRESS_IMAGES = "COMPRESS_IMAGES"
         private const val ALLOW_UPDATE = "ALLOW_UPDATE"
+        private const val IS_HOSTED_ELSEWHERE = "IS_HOSTED_ELSEWHERE"
+        private const val MAY_HAVE_REMOTE_MEMBERS = "MAY_HAVE_REMOTE_MEMBERS"
         private const val CHUNK_UPLOAD_THRESHOLD_SIZE: Long = 1024 * 1024
 
         // Total attempts allowed for a single upload (1 initial run + retries) before giving up on a
@@ -541,6 +617,10 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
             }
         }
 
+        /**
+         * Uploads a file to a conversation. Files sent to a conversation [isHostedElsewhere] or one that
+         * [mayHaveRemoteMembers] are shared read-only instead when no other member can open its attachments.
+         */
         @Suppress("LongParameterList")
         fun upload(
             userId: Long,
@@ -551,7 +631,9 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
             referenceId: String = "",
             internalConversationId: String = "",
             compressImages: Boolean = false,
-            allowUpdate: Boolean = false
+            allowUpdate: Boolean = false,
+            isHostedElsewhere: Boolean = false,
+            mayHaveRemoteMembers: Boolean = false
         ): UUID {
             val data: Data = Data.Builder()
                 .putLong(KEY_INTERNAL_USER_ID, userId)
@@ -563,6 +645,8 @@ class UploadAndShareFilesWorker(val context: Context, workerParameters: WorkerPa
                 .putString(KEY_INTERNAL_CONVERSATION_ID, internalConversationId)
                 .putBoolean(COMPRESS_IMAGES, compressImages)
                 .putBoolean(ALLOW_UPDATE, allowUpdate)
+                .putBoolean(IS_HOSTED_ELSEWHERE, isHostedElsewhere)
+                .putBoolean(MAY_HAVE_REMOTE_MEMBERS, mayHaveRemoteMembers)
                 .build()
             val uploadWorker: OneTimeWorkRequest = OneTimeWorkRequest.Builder(UploadAndShareFilesWorker::class.java)
                 .setInputData(data)

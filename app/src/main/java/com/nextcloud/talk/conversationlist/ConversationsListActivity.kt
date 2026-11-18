@@ -623,13 +623,20 @@ class ConversationsListActivity : BaseActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 contactsViewModel.roomViewState.collect { state ->
-                    if (state is ContactsViewModel.RoomUiState.Success) {
-                        state.conversation?.token?.let { token ->
-                            val chatIntent = ChatActivity.createIntent(context, state.userId, token)
-                            chatIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            startActivity(chatIntent)
+                    when (state) {
+                        is ContactsViewModel.RoomUiState.Success -> {
+                            state.conversation?.token?.let { token ->
+                                val chatIntent = ChatActivity.createIntent(context, state.userId, token)
+                                chatIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                startActivity(chatIntent)
+                            }
+                            contactsViewModel.clearRoomState()
                         }
-                        contactsViewModel.clearRoomState()
+                        is ContactsViewModel.RoomUiState.Error -> {
+                            showSnackbar(getString(state.reason.message))
+                            contactsViewModel.clearRoomState()
+                        }
+                        is ContactsViewModel.RoomUiState.None -> {}
                     }
                 }
             }

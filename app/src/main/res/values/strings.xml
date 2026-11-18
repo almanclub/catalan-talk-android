@@ -353,6 +353,8 @@ How to translate with transifex:
     <string name="nc_delete_conversation_more">If you delete the conversation, it will also be deleted for all other participants.</string>
 
     <string name="nc_new_conversation">New conversation</string>
+    <string name="nc_new_conversation_not_allowed">You are not allowed to start a conversation with this user</string>
+    <string name="nc_new_conversation_unreachable">The user was not found or their server could not be reached</string>
     <string name="nc_mark_as_read">Mark as read</string>
     <string name="nc_mark_as_unread">Mark as unread</string>
     <string name="nc_add_to_favorites">Add to favorites</string>

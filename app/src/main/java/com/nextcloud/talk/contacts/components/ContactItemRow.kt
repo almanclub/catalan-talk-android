@@ -10,10 +10,8 @@ package com.nextcloud.talk.contacts.components
 
 import android.content.Context
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,6 +32,7 @@ import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.nextcloud.talk.R
+import com.nextcloud.talk.contacts.CONTACT_SOURCE_REMOTES
 import com.nextcloud.talk.contacts.CompanionClass
 import com.nextcloud.talk.contacts.ContactsViewModel
 import com.nextcloud.talk.contacts.loadImage
@@ -44,7 +43,6 @@ import com.nextcloud.talk.utils.DisplayUtils
 @Composable
 fun ContactItemRow(contact: AutocompleteUserDto, contactsViewModel: ContactsViewModel, context: Context) {
     var isSelected by remember { mutableStateOf(contactsViewModel.selectedParticipantsList.value.contains(contact)) }
-    val roomUiState by contactsViewModel.roomViewState.collectAsState()
     val isAddParticipants = contactsViewModel.isAddParticipantsView.collectAsState()
     Row(
         modifier = Modifier
@@ -54,7 +52,7 @@ fun ContactItemRow(contact: AutocompleteUserDto, contactsViewModel: ContactsView
                     if (!isAddParticipants.value) {
                         contactsViewModel.createRoom(
                             CompanionClass.ROOM_TYPE_ONE_ONE,
-                            contact.source!!,
+                            contact.source!!.takeUnless { it == CONTACT_SOURCE_REMOTES },
                             contact.id!!,
                             null
                         )
@@ -72,7 +70,14 @@ fun ContactItemRow(contact: AutocompleteUserDto, contactsViewModel: ContactsView
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val imageUri = contact.id?.let { contactsViewModel.getImageUri(it, true, DisplayUtils.isDarkModeOn(context)) }
+        val isDarkMode = DisplayUtils.isDarkModeOn(context)
+        val imageUri = contact.id?.let {
+            if (contact.source == CONTACT_SOURCE_REMOTES) {
+                contactsViewModel.getFederatedImageUri(it, isDarkMode)
+            } else {
+                contactsViewModel.getImageUri(it, true, isDarkMode)
+            }
+        }
         val errorPlaceholderImage: Int = R.drawable.account_circle_96dp
         val loadedImage = loadImage(imageUri, context, errorPlaceholderImage)
         AsyncImage(
@@ -92,19 +97,5 @@ fun ContactItemRow(contact: AutocompleteUserDto, contactsViewModel: ContactsView
                 )
             }
         }
-    }
-    when (roomUiState) {
-        // Opening the created conversation is handled once by ContactsActivity, not by every row.
-        is ContactsViewModel.RoomUiState.Success -> {}
-        is ContactsViewModel.RoomUiState.Error -> {
-            val errorMessage = (roomUiState as ContactsViewModel.RoomUiState.Error).message
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = "Error: $errorMessage", color = Color.Red)
-            }
-        }
-        is ContactsViewModel.RoomUiState.None -> {}
     }
 }

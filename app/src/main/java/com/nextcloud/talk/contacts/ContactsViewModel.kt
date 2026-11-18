@@ -7,12 +7,15 @@
 
 package com.nextcloud.talk.contacts
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nextcloud.talk.R
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.logger.Logger
 import com.nextcloud.talk.models.json.autocomplete.AutocompleteUserDto
 import com.nextcloud.talk.models.json.conversations.ConversationDto
+import com.nextcloud.talk.utils.ApiUtils
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 @Suppress("TooManyFunctions")
 class ContactsViewModel @AssistedInject constructor(
@@ -64,6 +68,8 @@ class ContactsViewModel @AssistedInject constructor(
 
     companion object {
         private val TAG = ContactsViewModel::class.java.simpleName
+        private const val HTTP_FORBIDDEN = 403
+        private const val HTTP_NOT_FOUND = 404
     }
 
     fun updateSearchQuery(query: String) {
@@ -98,7 +104,7 @@ class ContactsViewModel @AssistedInject constructor(
     }
 
     fun updateShareTypes(value: List<String>) {
-        shareTypes.addAll(value)
+        shareTypes.addAll(value.filterNot { it in shareTypes })
     }
 
     fun updateIsAddParticipants(value: Boolean) {
@@ -120,16 +126,7 @@ class ContactsViewModel @AssistedInject constructor(
                     if (query != "") query else searchQuery.value,
                     shareTypeList
                 )
-                val contactsList: MutableList<AutocompleteUserDto>? = contacts.ocs!!.data?.toMutableList()
-
-                if (hideAlreadyAddedParticipants && !_clickAddButton.value) {
-                    contactsList?.removeAll(selectedParticipants.value)
-                }
-                if (_clickAddButton.value) {
-                    contactsList?.removeAll(selectedParticipants.value)
-                    contactsList?.addAll(_selectedContacts.value)
-                }
-                _contactsViewState.value = ContactsUiState.Success(contactsList)
+                _contactsViewState.value = ContactsUiState.Success(contactsToShow(contacts.ocs!!.data))
             } catch (exception: Exception) {
                 logger.e(TAG, "Failed to fetch contacts for search", exception)
                 _contactsViewState.value = ContactsUiState.Error(exception.message ?: "")
@@ -151,16 +148,7 @@ class ContactsViewModel @AssistedInject constructor(
                     if (query != "") query else searchQuery.value,
                     shareTypeList
                 )
-                val contactsList: MutableList<AutocompleteUserDto>? = contacts.ocs!!.data?.toMutableList()
-
-                if (hideAlreadyAddedParticipants && !_clickAddButton.value) {
-                    contactsList?.removeAll(selectedParticipants.value)
-                }
-                if (_clickAddButton.value) {
-                    contactsList?.removeAll(selectedParticipants.value)
-                    contactsList?.addAll(_selectedContacts.value)
-                }
-                _contactsViewState.value = ContactsUiState.Success(contactsList)
+                _contactsViewState.value = ContactsUiState.Success(contactsToShow(contacts.ocs!!.data))
             } catch (exception: Exception) {
                 logger.e(TAG, "Failed to fetch contacts for search", exception)
                 _contactsViewState.value = ContactsUiState.Error(exception.message ?: "")
@@ -175,6 +163,18 @@ class ContactsViewModel @AssistedInject constructor(
      */
     fun clearRoomState() {
         _roomViewState.value = RoomUiState.None
+    }
+
+    private fun contactsToShow(found: List<AutocompleteUserDto>?): List<AutocompleteUserDto>? {
+        val contactsList = found?.withoutOwnAccount(currentUser)?.toMutableList()
+        if (hideAlreadyAddedParticipants && !_clickAddButton.value) {
+            contactsList?.removeAll(selectedParticipants.value)
+        }
+        if (_clickAddButton.value) {
+            contactsList?.removeAll(selectedParticipants.value)
+            contactsList?.addAll(_selectedContacts.value)
+        }
+        return contactsList
     }
 
     @Suppress("Detekt.TooGenericExceptionCaught")
@@ -194,7 +194,7 @@ class ContactsViewModel @AssistedInject constructor(
                 _roomViewState.value = RoomUiState.Success(user.id!!, conversation)
             } catch (exception: Exception) {
                 logger.e(TAG, "Failed to create room", exception)
-                _roomViewState.value = RoomUiState.Error(exception.message ?: "")
+                _roomViewState.value = RoomUiState.Error(exception.message ?: "", RoomCreationError.from(exception))
             }
         }
     }
@@ -207,6 +207,14 @@ class ContactsViewModel @AssistedInject constructor(
             isDarkMode
         )
 
+    fun getFederatedImageUri(cloudId: String, isDarkMode: Boolean): String =
+        ApiUtils.getUrlForFederatedAvatarWithoutRoom(
+            currentUser.baseUrl!!,
+            cloudId,
+            if (isDarkMode) 1 else 0,
+            true
+        )
+
     sealed class ContactsUiState {
         data object None : ContactsUiState()
         data object Loading : ContactsUiState()
@@ -217,6 +225,22 @@ class ContactsViewModel @AssistedInject constructor(
     sealed class RoomUiState {
         data object None : RoomUiState()
         data class Success(val userId: Long, val conversation: ConversationDto?) : RoomUiState()
-        data class Error(val message: String) : RoomUiState()
+        data class Error(val message: String, val reason: RoomCreationError = RoomCreationError.OTHER) :
+            RoomUiState()
+    }
+
+    enum class RoomCreationError(@StringRes val message: Int) {
+        NOT_ALLOWED(R.string.nc_new_conversation_not_allowed),
+        UNREACHABLE(R.string.nc_new_conversation_unreachable),
+        OTHER(R.string.nc_common_error_sorry);
+
+        companion object {
+            fun from(exception: Exception): RoomCreationError =
+                when ((exception as? HttpException)?.code()) {
+                    HTTP_FORBIDDEN -> NOT_ALLOWED
+                    HTTP_NOT_FOUND -> UNREACHABLE
+                    else -> OTHER
+                }
+        }
     }
 }

@@ -15,6 +15,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextcloud.talk.R
 import com.nextcloud.talk.arbitrarystorage.ArbitraryStorageManager
+import com.nextcloud.talk.contacts.CONTACT_SOURCE_REMOTES
 import com.nextcloud.talk.contacts.ContactsRepository
 import com.nextcloud.talk.conversationlist.data.OfflineConversationsRepository
 import com.nextcloud.talk.conversationlist.data.network.ConversationListUpdater
@@ -492,7 +493,11 @@ class ConversationsListViewModel @AssistedInject constructor(
                         .forEach { autocompleteUser ->
                             val participant = ParticipantDto()
                             participant.actorId = autocompleteUser.id
-                            participant.actorType = actorTypeConverter.getFromString(autocompleteUser.source)
+                            participant.actorType = if (autocompleteUser.source == CONTACT_SOURCE_REMOTES) {
+                                ParticipantDto.ActorType.FEDERATED
+                            } else {
+                                actorTypeConverter.getFromString(autocompleteUser.source)
+                            }
                             participant.displayName = autocompleteUser.label
                             entries.add(ConversationListEntry.ContactEntry(participant))
                         }

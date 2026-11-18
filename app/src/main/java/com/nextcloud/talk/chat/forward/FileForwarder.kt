@@ -7,10 +7,7 @@
 
 package com.nextcloud.talk.chat.forward
 
-import android.util.Log
 import com.nextcloud.talk.utils.message.SendMessageUtils
-import kotlinx.coroutines.CancellationException
-import java.io.IOException
 import java.util.UUID
 
 /**
@@ -37,7 +34,8 @@ interface ForwardApi {
 
     suspend fun shareReadOnly(path: String, recipient: ReadOnlyRecipient)
 
-    suspend fun sendMessage(message: String, silent: Boolean)
+    /** Sends [message], with [referenceId] or a new one, as reply to the message [replyTo] unless it is 0. */
+    suspend fun sendMessage(message: String, silent: Boolean, referenceId: String? = null, replyTo: Int = 0)
 }
 
 /** The draft [folder] of a conversation and the [fileName] a file gets in the folder of the conversation. */
@@ -64,7 +62,7 @@ class FileForwarder(
     private val newUuid: () -> String = { UUID.randomUUID().toString() }
 ) {
     suspend fun forward(files: List<ForwardedFile>, silent: Boolean): ForwardResult {
-        val recipients = attempt("Could not load the members of the conversation") {
+        val recipients = attempt(TAG, "Could not load the members of the conversation") {
             forwardRecipients(api.roomMembers(), settings.ownUserId, settings.ownCloudId, settings.isHostedElsewhere)
         } ?: return ForwardResult(files.map { it.name }, emptyList())
 
@@ -73,7 +71,7 @@ class FileForwarder(
         val unreachedRecipients = linkedSetOf<String>()
         files.forEachIndexed { index, file ->
             val referenceId = SendMessageUtils().generateGroupedReferenceId(uploadId, index + 1)
-            val isForwarded = attempt("Could not forward a file") {
+            val isForwarded = attempt(TAG, "Could not forward a file") {
                 forwardFile(file, referenceId, recipients, silent, unreachedRecipients)
             }
             if (isForwarded != true) {
@@ -98,7 +96,7 @@ class FileForwarder(
         }
         val isSharedWithAnyone = shareReadOnly(file, recipients.readOnly, unreachedRecipients)
         if (!recipients.usesAttachment && isSharedWithAnyone) {
-            api.sendMessage(listOfNotNull(file.caption, readOnlyNotice(file.name)).joinToString("\n"), silent)
+            api.sendMessage(readOnlyShareMessage(file.caption, readOnlyNotice(file.name)), silent)
         }
         return recipients.usesAttachment || isSharedWithAnyone
     }
@@ -122,54 +120,20 @@ class FileForwarder(
         }
     }
 
-    // The folder is kept: deleting it would remove the shares.
     private suspend fun shareReadOnly(
         file: ForwardedFile,
         recipients: List<ReadOnlyRecipient>,
         unreachedRecipients: MutableSet<String>
     ): Boolean {
-        val path = attempt("Could not copy a file to share it read-only") {
-            api.createFolder("/$FORWARD_FOLDER")
-            val folder = "/$FORWARD_FOLDER/${newUuid()}"
-            requireSuccess(api.createFolder(folder))
-            "$folder/${file.name}".also { requireSuccess(api.copy(file.path, it)) }
-        }
-        if (path == null) {
-            unreachedRecipients += recipients.map { it.shareWith }
-            return false
-        }
-        var isSharedWithAnyone = false
-        recipients.forEach { recipient ->
-            if (attempt("Could not share a file read-only") { api.shareReadOnly(path, recipient) } != null) {
-                isSharedWithAnyone = true
-            } else {
-                unreachedRecipients += recipient.shareWith
-            }
-        }
-        return isSharedWithAnyone
-    }
-
-    @Suppress("TooGenericExceptionCaught")
-    private inline fun <T> attempt(failure: String, block: () -> T): T? =
-        try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, failure, e)
-            null
-        }
-
-    private fun requireSuccess(status: Int) {
-        if (status !in HTTP_SUCCESS) {
-            throw IOException("Server answered $status")
-        }
+        val unreached = attempt(TAG, "Could not copy a file to share it read-only") {
+            ReadOnlySharer(api, newUuid).share(file.name, recipients) { requireSuccess(api.copy(file.path, it)) }
+        } ?: recipients.map { it.shareWith }
+        unreachedRecipients += unreached
+        return unreached.size < recipients.size
     }
 
     companion object {
         private val TAG = FileForwarder::class.simpleName
-        const val FORWARD_FOLDER = "Talk-forwarded"
-        private val HTTP_SUCCESS = 200..299
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_CONFLICT = 409
     }

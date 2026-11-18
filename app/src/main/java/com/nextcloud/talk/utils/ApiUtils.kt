@@ -369,8 +369,18 @@ object ApiUtils {
     ): String {
         val avatarSize = if (requestBigSize) AVATAR_SIZE_BIG else AVATAR_SIZE_SMALL
         val url = "$baseUrl$OCS_API_VERSION$SPREED_API_VERSION/proxy/$token/user-avatar/$avatarSize"
-        return "$url?cloudId=$cloudId&darkTheme=$darkTheme"
+        return "$url?cloudId=${Uri.encode(cloudId)}&darkTheme=$darkTheme"
     }
+
+    /**
+     * The avatar of a federated user who doesn't share a conversation with the current user yet.
+     */
+    fun getUrlForFederatedAvatarWithoutRoom(
+        baseUrl: String,
+        cloudId: String,
+        darkTheme: Int,
+        requestBigSize: Boolean
+    ): String = getUrlForFederatedAvatar(baseUrl, "new", cloudId, darkTheme, requestBigSize)
 
     fun getUrlForConversationAvatar(version: Int, baseUrl: String?, token: String?): String =
         getUrlForRoom(version, baseUrl, token) + "/avatar"

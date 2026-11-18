@@ -14,7 +14,12 @@ import com.nextcloud.talk.contacts.repository.FakeRepositorySuccess
 import com.nextcloud.talk.data.user.UsersDao
 import com.nextcloud.talk.data.user.UsersRepository
 import com.nextcloud.talk.data.user.UsersRepositoryImpl
+import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.logger.Logger
+import com.nextcloud.talk.models.json.autocomplete.AutocompleteOCS
+import com.nextcloud.talk.models.json.autocomplete.AutocompleteOverall
+import com.nextcloud.talk.models.json.autocomplete.AutocompleteUserDto
+import com.nextcloud.talk.models.json.conversations.RoomOverall
 import com.nextcloud.talk.users.UserManager
 import com.nextcloud.talk.utils.preview.DummyUserDaoImpl
 import kotlinx.coroutines.Dispatchers
@@ -25,10 +30,14 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.mock
+import retrofit2.HttpException
+import retrofit2.Response
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Suppress("TooManyFunctions")
@@ -143,6 +152,30 @@ class ContactsViewModelTest {
             assert(viewModel.roomViewState.value is ContactsViewModel.RoomUiState.Error)
             val errorState = viewModel.roomViewState.value as ContactsViewModel.RoomUiState.Error
             assert(errorState.message == "unable to create room")
+            assertEquals(ContactsViewModel.RoomCreationError.OTHER, errorState.reason)
+        }
+
+    @Test
+    fun `a forbidden or unreachable invitee is told apart`() =
+        runTest {
+            mapOf(
+                HTTP_FORBIDDEN to ContactsViewModel.RoomCreationError.NOT_ALLOWED,
+                HTTP_NOT_FOUND to ContactsViewModel.RoomCreationError.UNREACHABLE
+            ).forEach { (code, reason) ->
+                viewModel = createViewModel(FakeRepositoryRoomCreationFails(code))
+                viewModel.createRoom("1", null, "bob@other.example.com", null)
+                val errorState = viewModel.roomViewState.value as ContactsViewModel.RoomUiState.Error
+                assertEquals(reason, errorState.reason)
+            }
+        }
+
+    @Test
+    fun `the own account is not listed as contact`() =
+        runTest {
+            viewModel = createViewModel(FakeRepositoryWithOwnAccount())
+            viewModel.getContactsFromSearchParams()
+            val successState = viewModel.contactsViewState.value as ContactsViewModel.ContactsUiState.Success
+            assertEquals(listOf("android", "user1_id@other.example.com"), successState.contacts?.map { it.id })
         }
 
     @Test
@@ -157,5 +190,36 @@ class ContactsViewModelTest {
         val expectedImageUri = "https://mydoman.com/index.php/avatar/vidya/512"
         val imageUri = viewModel.getImageUri("vidya", false, false)
         assert(imageUri != expectedImageUri)
+    }
+
+    private class FakeRepositoryRoomCreationFails(private val code: Int) :
+        ContactsRepository by FakeRepositorySuccess() {
+        override suspend fun createRoom(
+            user: User,
+            roomType: String,
+            sourceType: String?,
+            userId: String,
+            conversationName: String?
+        ): RoomOverall = throw HttpException(Response.error<RoomOverall>(code, "".toResponseBody()))
+    }
+
+    private class FakeRepositoryWithOwnAccount : ContactsRepository by FakeRepositorySuccess() {
+        override suspend fun getContacts(user: User, searchQuery: String?, shareTypes: List<String>) =
+            AutocompleteOverall(
+                ocs = AutocompleteOCS(
+                    meta = null,
+                    data = listOf(
+                        AutocompleteUserDto(id = "User1_ID", label = "Me", source = "users"),
+                        AutocompleteUserDto(id = "android", label = "Android", source = "users"),
+                        AutocompleteUserDto(id = "USER1_ID@Server1", label = "Me", source = "remotes"),
+                        AutocompleteUserDto(id = "user1_id@other.example.com", label = "Namesake", source = "remotes")
+                    )
+                )
+            )
+    }
+
+    companion object {
+        private const val HTTP_FORBIDDEN = 403
+        private const val HTTP_NOT_FOUND = 404
     }
 }

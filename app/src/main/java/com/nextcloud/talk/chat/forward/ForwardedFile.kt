@@ -9,6 +9,7 @@ package com.nextcloud.talk.chat.forward
 
 import com.google.gson.Gson
 import com.nextcloud.talk.chat.data.model.ChatMessage
+import com.nextcloud.talk.utils.CloudIdUtils
 
 private const val FILE_PLACEHOLDER = "{file}"
 private const val VOICE_MESSAGE_TYPE = "voice-message"
@@ -96,7 +97,7 @@ fun forwardRecipients(
     isHostedElsewhere: Boolean
 ): ForwardRecipients {
     val remoteUsers = members
-        .filter { it.actorType == ACTOR_TYPE_FEDERATED_USERS && !it.actorId.equals(ownCloudId, ignoreCase = true) }
+        .filter { it.actorType == ACTOR_TYPE_FEDERATED_USERS && !CloudIdUtils.isSameCloudId(it.actorId, ownCloudId) }
         .map { it.actorId }
         .distinctBy { it.lowercase() }
     val localUsers = members

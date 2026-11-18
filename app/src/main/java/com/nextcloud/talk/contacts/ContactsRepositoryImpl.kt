@@ -14,6 +14,7 @@ import com.nextcloud.talk.models.json.autocomplete.AutocompleteOverall
 import com.nextcloud.talk.models.json.autocomplete.AutocompleteUserDto
 import com.nextcloud.talk.models.json.conversations.RoomOverall
 import com.nextcloud.talk.utils.ApiUtils
+import com.nextcloud.talk.utils.CapabilitiesUtil
 import com.nextcloud.talk.utils.ContactUtils
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -79,7 +80,11 @@ class ContactsRepositoryImpl @Inject constructor(private val ncApiCoroutines: Nc
                 searchQuery
             )
 
-            val shareTypes = mutableListOf(ShareType.User.shareType).toList()
+            val shareTypes = if (CapabilitiesUtil.canInviteFederatedUsers(user.capabilities?.spreedCapability)) {
+                listOf(ShareType.User.shareType, ShareType.Remote.shareType)
+            } else {
+                listOf(ShareType.User.shareType)
+            }
 
             val modifiedQueryMap: HashMap<String, Any> = HashMap(retrofitBucket.queryMap)
             modifiedQueryMap["limit"] = ContactUtils.MAX_CONTACT_LIMIT
@@ -91,7 +96,7 @@ class ContactsRepositoryImpl @Inject constructor(private val ncApiCoroutines: Nc
                 modifiedQueryMap
             )
 
-            emit(response.ocs?.data.orEmpty())
+            emit(response.ocs?.data.orEmpty().withoutOwnAccount(user))
         }
 
     companion object {

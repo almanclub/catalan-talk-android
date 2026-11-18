@@ -35,6 +35,7 @@ import com.nextcloud.talk.data.database.mappers.toDomainModel
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.users.UserManager
 import com.nextcloud.talk.utils.CapabilitiesUtil
+import com.nextcloud.talk.utils.CloudIdUtils
 import com.nextcloud.talk.utils.NotificationUtils
 import com.nextcloud.talk.utils.SpreedFeatures
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_INTERNAL_USER_ID
@@ -108,7 +109,7 @@ class ForwardFilesWorker(context: Context, workerParams: WorkerParameters) : Cor
     private fun forwardSettings(user: User, attachmentFolder: String) =
         ForwardSettings(
             ownUserId = user.userId!!,
-            ownCloudId = "${user.userId}@${user.baseUrl!!.substringAfter("://").trimEnd('/')}",
+            ownCloudId = CloudIdUtils.ownCloudId(user.userId!!, user.baseUrl!!),
             isHostedElsewhere = inputData.getBoolean(KEY_TARGET_HOSTED_ELSEWHERE, false),
             usesConversationSubfolders = CapabilitiesUtil.hasConversationSubfoldersForAttachments(
                 user.capabilities!!.spreedCapability!!

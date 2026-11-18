@@ -436,6 +436,7 @@ class ConversationInfoViewModel @Inject constructor(
             hasSpreedFeatureCapability(spreedCapabilities, SpreedFeatures.ARCHIVE_CONVERSATIONS)
         val isArchived = conversationModel.hasArchived
 
+        val isFederatedDirectMessage = ConversationUtils.isFederatedDirectMessage(conversationModel)
         val showAddParticipants: Boolean
         val showStartGroupChat: Boolean
         val showClearHistory: Boolean
@@ -444,7 +445,7 @@ class ConversationInfoViewModel @Inject constructor(
             showAddParticipants = false
             showClearHistory = canDelete && hasSpreedFeatureCapability(spreedCapabilities, SpreedFeatures.CLEAR_HISTORY)
         } else if (canModerate) {
-            showAddParticipants = true
+            showAddParticipants = !isFederatedDirectMessage
             showStartGroupChat = false
             showClearHistory = canDelete && hasSpreedFeatureCapability(spreedCapabilities, SpreedFeatures.CLEAR_HISTORY)
         } else {
@@ -453,7 +454,9 @@ class ConversationInfoViewModel @Inject constructor(
             showClearHistory = false
         }
 
-        val showEditButton = canModerate && hasSpreedFeatureCapability(spreedCapabilities, SpreedFeatures.AVATAR)
+        val showEditButton = canModerate &&
+            !isFederatedDirectMessage &&
+            hasSpreedFeatureCapability(spreedCapabilities, SpreedFeatures.AVATAR)
         val showShareConversationButton = !isNoteToSelf && !isClassified
         val showListBans = canModerate && !isOne2One
         val showMessageExpiration = isModerator &&

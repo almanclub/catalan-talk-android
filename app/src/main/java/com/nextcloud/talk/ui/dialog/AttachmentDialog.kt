@@ -22,6 +22,7 @@ import com.nextcloud.talk.databinding.DialogAttachmentBinding
 import com.nextcloud.talk.ui.theme.ViewThemeUtils
 import com.nextcloud.talk.ui.theme.hostViewThemeUtils
 import com.nextcloud.talk.utils.CapabilitiesUtil
+import com.nextcloud.talk.utils.ConversationUtils
 import com.nextcloud.talk.utils.SpreedFeatures
 import javax.inject.Inject
 
@@ -60,6 +61,11 @@ class AttachmentDialog(val activity: Activity, var chatActivity: ChatActivity) :
     }
 
     private fun initItemsVisibility() {
+        if (ConversationUtils.isFederatedDirectMessage(chatActivity.currentConversation)) {
+            showOnlyDeviceFiles()
+            return
+        }
+
         if (!chatActivity.currentConversation!!.remoteServer.isNullOrEmpty()) {
             dialogAttachmentBinding.menuAttachContact.visibility = View.GONE
             dialogAttachmentBinding.menuShareLocation.visibility = View.GONE
@@ -93,6 +99,25 @@ class AttachmentDialog(val activity: Activity, var chatActivity: ChatActivity) :
         }
 
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            dialogAttachmentBinding.menuAttachVideoFromCam.visibility = View.GONE
+        }
+    }
+
+    /**
+     * A direct message with a user of another server only offers files of the device, as they are shared read-only
+     * with the other user instead of being attached.
+     */
+    private fun showOnlyDeviceFiles() {
+        listOf(
+            dialogAttachmentBinding.menuAttachContact,
+            dialogAttachmentBinding.menuShareLocation,
+            dialogAttachmentBinding.menuAttachFileFromCloud,
+            dialogAttachmentBinding.menuAttachPoll,
+            dialogAttachmentBinding.menuCreateThread
+        ).forEach { it.visibility = View.GONE }
+
+        if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            dialogAttachmentBinding.menuAttachPictureFromCam.visibility = View.GONE
             dialogAttachmentBinding.menuAttachVideoFromCam.visibility = View.GONE
         }
     }
