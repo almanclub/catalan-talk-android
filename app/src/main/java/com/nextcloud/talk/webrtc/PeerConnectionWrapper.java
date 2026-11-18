@@ -26,6 +26,7 @@ import org.webrtc.MediaStream;
 import org.webrtc.MediaStreamTrack;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
+import org.webrtc.RtpParameters;
 import org.webrtc.RtpReceiver;
 import org.webrtc.RtpSender;
 import org.webrtc.RtpTransceiver;
@@ -74,6 +75,10 @@ public final class PeerConnectionWrapper {
     // The frame encryption only handles VP8
     private final String preferredVideoCodec;
 
+    // Upper limit for the bitrate of the sent video, null to keep the default of WebRTC
+    @Nullable
+    private final Integer maxVideoBitrateBps;
+
     // It is assumed that there will be at most one remote stream at each time.
     private MediaStream stream;
     private volatile boolean remoteAudioPlayoutEnabled = false;
@@ -115,12 +120,10 @@ public final class PeerConnectionWrapper {
     }
 
     /**
-     * @param encryptionRequired whether the call has to be end-to-end encrypted; the wrapper is then not created
-     *                           without the keys it needs, so no media is ever exchanged unencrypted
-     * @param senderKeyRing own keys to encrypt the local tracks with, null when the call is not end-to-end encrypted
-     * @param receiverKeyRing keys of the remote participant to decrypt its tracks with, null when the call is not
-     *                        end-to-end encrypted
-     * @throws IllegalStateException when encryption is required but the keys for this connection are missing
+     * Creates a wrapper that keeps the default bitrate of WebRTC for the sent video.
+     *
+     * @see #PeerConnectionWrapper(PeerConnectionFactory, List, MediaConstraints, String, String, MediaStream, boolean,
+     * boolean, String, SignalingMessageReceiver, SignalingMessageSender, boolean, FrameKeyRing, FrameKeyRing, Integer)
      */
     public PeerConnectionWrapper(PeerConnectionFactory peerConnectionFactory,
                                  List<PeerConnection.IceServer> iceServerList,
@@ -132,6 +135,31 @@ public final class PeerConnectionWrapper {
                                  boolean encryptionRequired,
                                  @Nullable FrameKeyRing senderKeyRing,
                                  @Nullable FrameKeyRing receiverKeyRing) {
+        this(peerConnectionFactory, iceServerList, mediaConstraints, sessionId, localSession, localStream,
+             isMCUPublisher, hasMCU, videoStreamType, signalingMessageReceiver, signalingMessageSender,
+             encryptionRequired, senderKeyRing, receiverKeyRing, null);
+    }
+
+    /**
+     * @param encryptionRequired whether the call has to be end-to-end encrypted; the wrapper is then not created
+     *                           without the keys it needs, so no media is ever exchanged unencrypted
+     * @param senderKeyRing own keys to encrypt the local tracks with, null when the call is not end-to-end encrypted
+     * @param receiverKeyRing keys of the remote participant to decrypt its tracks with, null when the call is not
+     *                        end-to-end encrypted
+     * @param maxVideoBitrateBps upper limit for the bitrate of the sent video, null to keep the default of WebRTC
+     * @throws IllegalStateException when encryption is required but the keys for this connection are missing
+     */
+    public PeerConnectionWrapper(PeerConnectionFactory peerConnectionFactory,
+                                 List<PeerConnection.IceServer> iceServerList,
+                                 MediaConstraints mediaConstraints,
+                                 String sessionId, String localSession, @Nullable MediaStream localStream,
+                                 boolean isMCUPublisher, boolean hasMCU, String videoStreamType,
+                                 SignalingMessageReceiver signalingMessageReceiver,
+                                 SignalingMessageSender signalingMessageSender,
+                                 boolean encryptionRequired,
+                                 @Nullable FrameKeyRing senderKeyRing,
+                                 @Nullable FrameKeyRing receiverKeyRing,
+                                 @Nullable Integer maxVideoBitrateBps) {
         boolean missingSenderKeys = (isMCUPublisher || localStream != null) && senderKeyRing == null;
         boolean missingReceiverKeys = !isMCUPublisher && receiverKeyRing == null;
         if (encryptionRequired && (missingSenderKeys || missingReceiverKeys)) {
@@ -142,6 +170,7 @@ public final class PeerConnectionWrapper {
         this.videoStreamType = videoStreamType;
         this.receiverKeyRing = receiverKeyRing;
         this.preferredVideoCodec = senderKeyRing != null || receiverKeyRing != null ? "VP8" : "H264";
+        this.maxVideoBitrateBps = maxVideoBitrateBps;
 
         this.sessionId = sessionId;
         this.mediaConstraints = mediaConstraints;
@@ -780,6 +809,29 @@ public final class PeerConnectionWrapper {
     private class SdpObserver implements org.webrtc.SdpObserver {
         private static final String TAG = "SdpObserver";
 
+        /**
+         * Applies the bitrate limit to the senders of the local video.
+         * <p>
+         * The encodings of a sender might be known only once a description was set, so the limit is applied after
+         * each one. It is only applied from the signaling thread, as getting the senders disposes the previously
+         * returned ones.
+         */
+        private void applyMaxVideoBitrate() {
+            if (maxVideoBitrateBps == null) {
+                return;
+            }
+            for (RtpSender sender : peerConnection.getSenders()) {
+                if (!(sender.track() instanceof VideoTrack)) {
+                    continue;
+                }
+                RtpParameters parameters = sender.getParameters();
+                if (VideoQuality.limitBitrate(parameters.encodings, maxVideoBitrateBps)
+                    && !sender.setParameters(parameters)) {
+                    Log.w(TAG, "Could not limit the video bitrate over " + sessionId);
+                }
+            }
+        }
+
         @Override
         public void onCreateFailure(String s) {
             Log.d(TAG, "SDPObserver createFailure: " + s + " over " + sessionId);
@@ -821,6 +873,8 @@ public final class PeerConnectionWrapper {
         @Override
         public void onSetSuccess() {
             if (peerConnection != null) {
+                applyMaxVideoBitrate();
+
                 if (peerConnection.getLocalDescription() == null) {
 
                     if (shouldNotReceiveVideo()) {

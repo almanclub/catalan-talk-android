@@ -321,6 +321,18 @@ class AppPreferencesImpl(val context: Context) : AppPreferences {
             }
         }
 
+    override fun getMaxVideoResolution(): String =
+        runBlocking {
+            async { readString(MAX_VIDEO_RESOLUTION).first() }
+        }.getCompleted()
+
+    override fun setMaxVideoResolution(value: String) =
+        runBlocking<Unit> {
+            async {
+                writeString(MAX_VIDEO_RESOLUTION, value)
+            }
+        }
+
     override fun getIsKeyboardIncognito(): Boolean {
         val read = runBlocking { async { readBoolean(INCOGNITO_KEYBOARD).first() } }.getCompleted()
         return read
@@ -725,6 +737,7 @@ class AppPreferencesImpl(val context: Context) : AppPreferences {
         const val SCREEN_SECURITY = "screen_security"
         const val SCREEN_LOCK = "screen_lock"
         const val CALL_MICROPHONE_MUTED = "call_microphone_muted"
+        const val MAX_VIDEO_RESOLUTION = "max_video_resolution"
         const val INCOGNITO_KEYBOARD = "incognito_keyboard"
         const val SHOW_ECOSYSTEM = "SHOW_ECOSYSTEM"
         const val PHONE_BOOK_INTEGRATION = "phone_book_integration"

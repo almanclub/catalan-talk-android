@@ -162,6 +162,16 @@ How to translate with transifex:
     <string name="nc_media_quality_original">Original quality</string>
     <string name="nc_media_quality_reduced">Reduced quality</string>
     <string name="nc_media_quality_original_hint">Sending original quality uses more mobile data.</string>
+    <string name="nc_settings_video_quality_title">Maximum video quality</string>
+    <string name="nc_settings_video_quality_hint">This is the maximum quality the camera will send. The call automatically reduces the quality when the network, the device or the other participants cannot keep up. Higher resolutions use significantly more data.</string>
+    <string name="nc_video_quality_option">%1$s (%2$d × %3$d)</string>
+    <string name="nc_video_quality_low">Low</string>
+    <string name="nc_video_quality_standard">Standard</string>
+    <string name="nc_video_quality_medium">Medium</string>
+    <string name="nc_video_quality_hd">HD</string>
+    <string name="nc_video_quality_full_hd">Full HD</string>
+    <string name="nc_video_quality_qhd">1440p</string>
+    <string name="nc_video_quality_uhd">4K</string>
     <string name="nc_file_permission_view_only">View-only</string>
     <string name="nc_file_permission_editable">Editable</string>
     <string name="nc_close_video_playback">Close video playback</string>

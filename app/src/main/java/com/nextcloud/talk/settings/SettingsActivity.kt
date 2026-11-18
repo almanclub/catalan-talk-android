@@ -100,6 +100,7 @@ import com.nextcloud.talk.utils.permissions.PlatformPermissionUtil
 import com.nextcloud.talk.utils.power.PowerManagerUtils
 import com.nextcloud.talk.utils.preferences.AppPreferencesImpl
 import com.nextcloud.talk.utils.singletons.ApplicationWideMessageHolder
+import com.nextcloud.talk.webrtc.MaxVideoResolution
 import io.reactivex.Observer
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.Disposable
@@ -196,6 +197,8 @@ class SettingsActivity :
         )
 
         setupBlockedUsers()
+
+        setupVideoQualitySetting()
 
         setupDiagnosis()
 
@@ -1225,25 +1228,77 @@ class SettingsActivity :
     }
 
     private fun showMediaQualityDialog() {
-        var dialog: AlertDialog? = null
-        val view = buildMediaQualityDialogContentView { reducedQuality ->
-            appPreferences.setCompressUploadImages(reducedQuality)
+        val reducedQualities = listOf(false, true)
+        showSingleChoiceDialog(
+            title = R.string.nc_settings_media_quality_title,
+            hint = getString(R.string.nc_media_quality_original_hint),
+            options = listOf(
+                getString(R.string.nc_media_quality_original),
+                getString(R.string.nc_media_quality_reduced)
+            ),
+            selectedIndex = reducedQualities.indexOf(appPreferences.compressUploadImages)
+        ) { index ->
+            appPreferences.setCompressUploadImages(reducedQualities[index])
             updateMediaQualitySummary()
+        }
+    }
+
+    private fun setupVideoQualitySetting() {
+        updateVideoQualitySummary()
+        binding.settingsVideoQuality.setOnClickListener {
+            showVideoQualityDialog()
+        }
+    }
+
+    private fun updateVideoQualitySummary() {
+        binding.settingsVideoQualityDesc.text =
+            videoQualityLabel(MaxVideoResolution.fromKey(appPreferences.maxVideoResolution))
+    }
+
+    private fun videoQualityLabel(resolution: MaxVideoResolution): String =
+        getString(R.string.nc_video_quality_option, getString(resolution.nameRes), resolution.width, resolution.height)
+
+    private fun showVideoQualityDialog() {
+        val resolutions = MaxVideoResolution.entries
+        showSingleChoiceDialog(
+            title = R.string.nc_settings_video_quality_title,
+            hint = getString(R.string.nc_settings_video_quality_hint),
+            options = resolutions.map { videoQualityLabel(it) },
+            selectedIndex = resolutions.indexOf(MaxVideoResolution.fromKey(appPreferences.maxVideoResolution))
+        ) { index ->
+            appPreferences.maxVideoResolution = resolutions[index].key
+            updateVideoQualitySummary()
+        }
+    }
+
+    private fun showSingleChoiceDialog(
+        @StringRes title: Int,
+        hint: String,
+        options: List<String>,
+        selectedIndex: Int,
+        onSelect: (index: Int) -> Unit
+    ) {
+        var dialog: AlertDialog? = null
+        val view = buildSingleChoiceDialogContentView(hint, options, selectedIndex) { index ->
+            onSelect(index)
             dialog?.dismiss()
         }
         val dialogBuilder = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.nc_settings_media_quality_title)
+            .setTitle(title)
             .setView(view)
         viewThemeUtils.dialog.colorMaterialAlertDialogBackground(this, dialogBuilder)
         dialog = dialogBuilder.show()
     }
 
     // AlertDialog/MaterialAlertDialogBuilder doesn't reliably render both setMessage(...) and
-    // setSingleChoiceItems(...) together (the list ends up empty), so the hint and the two
+    // setSingleChoiceItems(...) together (the list ends up empty), so the hint and the
     // options are laid out manually here instead, mirroring buildShareDialogContentView's style.
-    private fun buildMediaQualityDialogContentView(
-        onSelect: (reducedQuality: Boolean) -> Unit
-    ): android.widget.LinearLayout {
+    private fun buildSingleChoiceDialogContentView(
+        hint: String,
+        options: List<String>,
+        selectedIndex: Int,
+        onSelect: (index: Int) -> Unit
+    ): android.widget.ScrollView {
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
         val selectableBackground = with(android.util.TypedValue()) {
@@ -1251,7 +1306,7 @@ class SettingsActivity :
             resourceId
         }
 
-        fun optionRow(label: String, reducedQuality: Boolean) =
+        fun optionRow(label: String, index: Int) =
             android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
@@ -1263,7 +1318,7 @@ class SettingsActivity :
                 isFocusable = true
                 addView(
                     android.widget.RadioButton(context).apply {
-                        isChecked = appPreferences.compressUploadImages == reducedQuality
+                        isChecked = index == selectedIndex
                         isClickable = false
                     }
                 )
@@ -1274,23 +1329,23 @@ class SettingsActivity :
                         setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
                     }
                 )
-                setOnClickListener { onSelect(reducedQuality) }
+                setOnClickListener { onSelect(index) }
             }
 
-        return android.widget.LinearLayout(this).apply {
+        val content = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             addView(
                 android.widget.TextView(context).apply {
-                    text = getString(R.string.nc_media_quality_original_hint)
+                    text = hint
                     val h = dp(DIALOG_PADDING_H_DP)
                     val v = dp(DIALOG_PADDING_V_DP)
                     setPadding(h, v, h, v)
                     setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
                 }
             )
-            addView(optionRow(getString(R.string.nc_media_quality_original), reducedQuality = false))
-            addView(optionRow(getString(R.string.nc_media_quality_reduced), reducedQuality = true))
+            options.forEachIndexed { index, label -> addView(optionRow(label, index)) }
         }
+        return android.widget.ScrollView(this).apply { addView(content) }
     }
 
     private fun setupPhoneBookIntegrationSetting() {

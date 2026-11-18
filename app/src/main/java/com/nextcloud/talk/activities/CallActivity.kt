@@ -161,8 +161,11 @@ import com.nextcloud.talk.viewmodels.CallRecordingViewModel.RecordingConfirmStop
 import com.nextcloud.talk.viewmodels.CallRecordingViewModel.RecordingErrorState
 import com.nextcloud.talk.viewmodels.CallRecordingViewModel.RecordingStartedState
 import com.nextcloud.talk.viewmodels.CallRecordingViewModel.RecordingStartingState
+import com.nextcloud.talk.webrtc.MaxVideoResolution
 import com.nextcloud.talk.webrtc.PeerConnectionWrapper
 import com.nextcloud.talk.webrtc.PeerConnectionWrapper.PeerConnectionObserver
+import com.nextcloud.talk.webrtc.VideoCaptureSettings
+import com.nextcloud.talk.webrtc.VideoQuality
 import com.nextcloud.talk.webrtc.WebRTCUtils
 import com.nextcloud.talk.webrtc.WebRtcAudioManager
 import com.nextcloud.talk.webrtc.WebRtcAudioManager.AudioDevice
@@ -250,6 +253,10 @@ class CallActivity : CallBaseActivity() {
     private var nickSendingDisposable: Disposable? = null
     private var iceServers: MutableList<PeerConnection.IceServer>? = null
     private var cameraEnumerator: CameraEnumerator? = null
+    private var cameraDeviceName: String? = null
+    private var isVideoCapturePortrait = true
+    private var videoCapture: VideoCaptureSettings? = null
+    private val maxVideoResolution by lazy { MaxVideoResolution.fromKey(appPreferences.maxVideoResolution) }
     private var roomToken: String? = null
     lateinit var conversationUser: User
     private var conversationName: String? = null
@@ -1467,6 +1474,7 @@ class CallActivity : CallBaseActivity() {
                 val videoCapturer: VideoCapturer? = enumerator.createCapturer(deviceName, null)
                 if (videoCapturer != null) {
                     isFrontCamera = true
+                    cameraDeviceName = deviceName
                     return videoCapturer
                 }
             }
@@ -1480,6 +1488,7 @@ class CallActivity : CallBaseActivity() {
                 val videoCapturer: VideoCapturer? = enumerator.createCapturer(deviceName, null)
                 if (videoCapturer != null) {
                     isFrontCamera = false
+                    cameraDeviceName = deviceName
                     return videoCapturer
                 }
             }
@@ -1568,9 +1577,12 @@ class CallActivity : CallBaseActivity() {
             return
         }
         val wasFrontCamera = isFrontCamera
-        cameraVideoCapturer.switchCamera(object : CameraSwitchHandler {
+        val nextCameraDeviceName = nextCameraDeviceName()
+        val switchHandler = object : CameraSwitchHandler {
             override fun onCameraSwitchDone(currentCameraIsFront: Boolean) {
                 isFrontCamera = currentCameraIsFront
+                cameraDeviceName = nextCameraDeviceName
+                runOnUiThread { restartVideoCaptureIfFormatChanged() }
                 onSwitched(currentCameraIsFront)
             }
 
@@ -1578,7 +1590,31 @@ class CallActivity : CallBaseActivity() {
                 Log.e(TAG, "Error while switching camera: $s")
                 onSwitched(wasFrontCamera)
             }
-        })
+        }
+        if (nextCameraDeviceName != null) {
+            cameraVideoCapturer.switchCamera(switchHandler, nextCameraDeviceName)
+        } else {
+            cameraVideoCapturer.switchCamera(switchHandler)
+        }
+    }
+
+    /**
+     * The camera after the current one, in the same order in which the capturer switches cameras by itself.
+     */
+    private fun nextCameraDeviceName(): String? {
+        val deviceNames = cameraEnumerator?.deviceNames ?: return null
+        val index = deviceNames.indexOf(cameraDeviceName)
+        return if (index < 0) null else deviceNames[(index + 1) % deviceNames.size]
+    }
+
+    /**
+     * The new camera might support other formats than the previous one, so the capture is restarted with the best
+     * format for the new camera.
+     */
+    private fun restartVideoCaptureIfFormatChanged() {
+        if (isSelfVideoEnabled && selectVideoCapture(isVideoCapturePortrait) != videoCapture) {
+            startVideoCapture(isVideoCapturePortrait)
+        }
     }
 
     private fun toggleMedia(enable: Boolean, video: Boolean) {
@@ -2474,16 +2510,20 @@ class CallActivity : CallBaseActivity() {
     private val ActivityManager.RecentTaskInfo.taskIdCompat: Int
         get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) taskId else persistentId
 
-    private fun startVideoCapture(isPortrait: Boolean) {
-        val (width, height) = if (isPortrait) {
-            WIDTH_4_TO_3_RATIO to HEIGHT_4_TO_3_RATIO
-        } else {
-            WIDTH_16_TO_9_RATIO to HEIGHT_16_TO_9_RATIO
-        }
+    private fun selectVideoCapture(isPortrait: Boolean): VideoCaptureSettings {
+        val (width, height) = maxVideoResolution.captureSize(isPortrait)
+        val formats = cameraDeviceName?.let { cameraEnumerator?.getSupportedFormats(it) }.orEmpty()
+        return VideoQuality.selectCapture(formats, width, height)
+    }
 
+    private fun startVideoCapture(isPortrait: Boolean) {
+        isVideoCapturePortrait = isPortrait
         videoCapturer?.let {
+            val capture = selectVideoCapture(isPortrait)
+            Log.d(TAG, "Capturing video at ${capture.width}x${capture.height} ${capture.framerate} fps")
             it.stopCapture()
-            it.startCapture(width, height, FRAME_RATE)
+            it.startCapture(capture.width, capture.height, capture.framerate)
+            videoCapture = capture
         }
     }
 
@@ -2749,6 +2789,7 @@ class CallActivity : CallBaseActivity() {
         }
     }
 
+    @Suppress("LongMethod")
     private fun createPeerConnectionWrapperForSessionIdAndType(
         publisher: Boolean,
         sessionId: String?,
@@ -2833,7 +2874,8 @@ class CallActivity : CallBaseActivity() {
                 signalingMessageSender,
                 isCallEndToEndEncryptionEnabled,
                 senderKeyRing,
-                receiverKeyRing
+                receiverKeyRing,
+                if (tempLocalStream != null) maxVideoResolution.maxBitrateBps else null
             )
         } catch (e: IllegalStateException) {
             Log.e(TAG, "Not creating a connection to $sessionId", e)
@@ -3689,12 +3731,6 @@ class CallActivity : CallBaseActivity() {
         private const val SAMPLE_RATE = 8000
         private const val MICROPHONE_VALUE_THRESHOLD = 20
         private const val MICROPHONE_VALUE_SLEEP: Long = 1000
-
-        private const val FRAME_RATE: Int = 30
-        private const val WIDTH_16_TO_9_RATIO: Int = 1280
-        private const val HEIGHT_16_TO_9_RATIO: Int = 720
-        private const val WIDTH_4_TO_3_RATIO: Int = 640
-        private const val HEIGHT_4_TO_3_RATIO: Int = 480
 
         private const val RATIO_4_TO_3 = "RATIO_4_TO_3"
         private const val RATIO_16_TO_9 = "RATIO_16_TO_9"

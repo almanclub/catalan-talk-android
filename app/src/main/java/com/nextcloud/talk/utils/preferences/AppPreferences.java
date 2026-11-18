@@ -122,6 +122,10 @@ public interface AppPreferences {
 
     void setCallMicrophoneMuted(boolean value);
 
+    String getMaxVideoResolution();
+
+    void setMaxVideoResolution(String value);
+
     boolean getIsKeyboardIncognito();
 
     void setIncognitoKeyboard(boolean value);
