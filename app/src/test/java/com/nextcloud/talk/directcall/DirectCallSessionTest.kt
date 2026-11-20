@@ -16,7 +16,6 @@ import com.nextcloud.talk.directcall.CallAttemptFixtures.attempt
 import com.nextcloud.talk.directcall.CallAttemptFixtures.attemptJson
 import com.nextcloud.talk.directcall.CallAttemptFixtures.ended
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -34,38 +33,9 @@ import org.junit.Test
 @Suppress("TooManyFunctions")
 class DirectCallSessionTest {
 
-    private class FakeHost(override val scope: CoroutineScope, private val clock: () -> Long) :
-        DirectCallSession.Host {
-        val requests = mutableListOf<Pair<String, JsonObject?>>()
-        val enqueued = mutableListOf<Pair<String, JsonObject>>()
-        var remembered = 0
-        var handler: suspend (String) -> CallAttempt? = { null }
+    private fun TestScope.host() = FakeSessionHost(backgroundScope) { testScheduler.currentTime }
 
-        override fun uptimeMillis(): Long = clock()
-
-        override suspend fun request(session: DirectCallSession, path: String, body: JsonObject?): CallAttempt? {
-            requests += path to body
-            return handler(path)
-        }
-
-        override fun enqueue(session: DirectCallSession, path: String, body: JsonObject) {
-            enqueued += path to body
-        }
-
-        override fun noteRevision(session: DirectCallSession) = Unit
-
-        override fun remember(session: DirectCallSession) {
-            remembered++
-        }
-
-        override fun changed(session: DirectCallSession) = Unit
-
-        fun paths() = requests.map { it.first }
-    }
-
-    private fun TestScope.host() = FakeHost(backgroundScope) { testScheduler.currentTime }
-
-    private fun session(host: FakeHost, initiator: Boolean, callId: String? = null) =
+    private fun session(host: FakeSessionHost, initiator: Boolean, callId: String? = null) =
         DirectCallSession(1, "room", initiator, callId, "request-1", host)
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.content
@@ -359,6 +329,22 @@ class DirectCallSessionTest {
             assertEquals(listOf(CallAttemptResponses.ACTIVE), host.paths())
             assertTrue(session.isTerminal)
             assertTrue(host.remembered > 0)
+        }
+
+    @Test
+    fun missingAttemptEndsTheSessionAndStopsPolling() =
+        runTest {
+            val host = host()
+            host.handler = { throw CallAttemptException(404, "call_not_found") }
+            val session = session(host, initiator = false, callId = CALL_ID)
+
+            session.reconcile()
+            runCurrent()
+            elapse(POLL * 3)
+
+            assertTrue(session.isTerminal)
+            assertEquals(1, host.requests.size)
+            assertTrue(host.enqueued.isEmpty())
         }
 
     companion object {

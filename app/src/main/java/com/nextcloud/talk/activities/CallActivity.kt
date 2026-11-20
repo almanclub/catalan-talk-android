@@ -95,6 +95,9 @@ import com.nextcloud.talk.callnotification.CallNotificationActivity
 import com.nextcloud.talk.conversationlist.ConversationsListActivity
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.databinding.CallActivityBinding
+import com.nextcloud.talk.directcall.CallAttempt
+import com.nextcloud.talk.directcall.DirectCallManager
+import com.nextcloud.talk.directcall.DirectCallScreen
 import com.nextcloud.talk.events.ConfigurationChangeEvent
 import com.nextcloud.talk.events.NetworkEvent
 import com.nextcloud.talk.events.ProximitySensorEvent
@@ -134,10 +137,12 @@ import com.nextcloud.talk.utils.RetryBackoff
 import com.nextcloud.talk.utils.SpreedFeatures
 import com.nextcloud.talk.utils.VibrationUtils.vibrateShort
 import com.nextcloud.talk.utils.animations.PulseAnimation
+import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_CALL_ID
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_CALL_VOICE_ONLY
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_CALL_WITHOUT_NOTIFICATION
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_CONVERSATION_NAME
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_CONVERSATION_PASSWORD
+import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_DIRECT_CALL
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_FROM_NOTIFICATION_START_CALL
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_INTERNAL_USER_ID
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_IS_BREAKOUT_ROOM
@@ -178,6 +183,8 @@ import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import okhttp3.Cache
 import org.apache.commons.lang3.StringEscapeUtils
@@ -231,6 +238,12 @@ class CallActivity : CallBaseActivity() {
     @Inject
     lateinit var viewModelFactory: ViewModelProvider.Factory
     lateinit var callViewModel: CallViewModel
+
+    @Inject
+    lateinit var directCallManager: DirectCallManager
+
+    // The call attempt of a 1-1 call; null for calls without call attempts.
+    private var directCall: DirectCallScreen? = null
 
     var audioManager: WebRtcAudioManager? = null
     var callRecordingViewModel: CallRecordingViewModel? = null
@@ -294,6 +307,7 @@ class CallActivity : CallBaseActivity() {
     private val offerAnswerNickProviders: MutableMap<String?, OfferAnswerNickProvider?> = HashMap()
     private val callParticipantMessageListeners: MutableMap<String?, CallParticipantMessageListener> = HashMap()
     private val selfPeerConnectionObserver: PeerConnectionObserver = CallActivitySelfPeerConnectionObserver()
+    private val remoteMediaObserver: PeerConnectionObserver = RemoteMediaObserver()
 
     private val callParticipantListObserver: CallParticipantList.Observer = object : CallParticipantList.Observer {
         override fun onCallParticipantsChanged(
@@ -307,7 +321,8 @@ class CallActivity : CallBaseActivity() {
 
         override fun onCallEndedForAll() {
             Log.d(TAG, "A moderator ended the call for all.")
-            hangup(true, false)
+            val screen = directCall
+            if (screen != null) screen.leftCall() else hangup(true, false)
         }
     }
     private var callParticipantList: CallParticipantList? = null
@@ -546,6 +561,7 @@ class CallActivity : CallBaseActivity() {
             baseUrl = conversationUser!!.baseUrl
         }
         powerManagerUtils = PowerManagerUtils()
+        attachDirectCall(extras)
 
         // Register broadcast receiver for ending call from notification
         val endCallFilter = IntentFilter(END_CALL_FROM_NOTIFICATION)
@@ -754,6 +770,45 @@ class CallActivity : CallBaseActivity() {
         }
 
         baseUrl = extras.getString(KEY_MODIFIED_BASE_URL, "")
+    }
+
+    private fun attachDirectCall(extras: Bundle) {
+        val accountId = conversationUser.id ?: return
+        val token = roomToken ?: return
+        val callId = extras.getString(KEY_CALL_ID)
+        val session = if (callId != null && CallAttempt.isCallId(callId)) {
+            val incoming = directCallManager.incoming(accountId, token, callId).also { it.beginAccepting() }
+            directCallManager.attach(accountId, token, initiator = false, enabled = false, incoming = incoming)
+        } else {
+            directCallManager.attach(
+                accountId,
+                token,
+                initiator = !isIncomingCallFromNotification,
+                enabled = extras.getBoolean(KEY_DIRECT_CALL, false)
+            )
+        }
+        val screen = session?.let { DirectCallScreen(it, directCallManager.scope) } ?: return
+        directCall = screen
+        // Dispatched instead of immediate, so an attempt that is already over closes the screen after onCreate.
+        lifecycleScope.launch(Dispatchers.Main) {
+            directCallManager.changes
+                .filter { it === screen.session }
+                .onStart { emit(screen.session) }
+                .collect { onDirectCallChanged(screen) }
+        }
+    }
+
+    private fun onDirectCallChanged(screen: DirectCallScreen) {
+        if (currentCallStatus === CallStatus.LEAVING) {
+            return
+        }
+        val state = screen.session.snapshot?.state
+        if (screen.isOver || screen.session.endedByUser) {
+            screen.outcomeRes()?.let { Toast.makeText(applicationContext, it, Toast.LENGTH_LONG).show() }
+            hangup(shutDownView = true, endCallForAll = false)
+        } else if (state != null && state != CallAttempt.State.RINGING) {
+            stopCallingSound()
+        }
     }
 
     private fun checkRecordingConsentAndInitiateCall() {
@@ -1714,6 +1769,7 @@ class CallActivity : CallBaseActivity() {
             ApplicationWideCurrentRoomHolder.getInstance().isDialing = false
         }
 
+        directCall?.let { directCallManager.detach(it.session) }
         super.onDestroy()
     }
 
@@ -1875,6 +1931,15 @@ class CallActivity : CallBaseActivity() {
     private fun joinRoomAndCall() {
         joinRoomInitiated = true
         callSession = ApplicationWideCurrentRoomHolder.getInstance().session
+        val screen = directCall
+        if (screen != null) {
+            // A call attempt needs a fresh room session, which is kept once it is bound to the attempt.
+            if (screen.requestRoomJoin()) {
+                callSession = null
+            } else {
+                callSession = screen.roomSession ?: return
+            }
+        }
         val apiVersion = ApiUtils.getConversationApiVersion(conversationUser, intArrayOf(ApiUtils.API_V4, 1))
         Log.d(TAG, "joinRoomAndCall")
         Log.d(TAG, "   baseUrl= $baseUrl")
@@ -1899,6 +1964,7 @@ class CallActivity : CallBaseActivity() {
                         currentConversation = conversation
                         callRecordingViewModel!!.setRecordingState(conversation!!.callRecording)
                         callSession = conversation.sessionId
+                        directCall?.roomSession = callSession
                         Log.d(TAG, " new callSession by joinRoom= $callSession")
 
                         setInitialApplicationWideCurrentRoomHolderValues(conversation)
@@ -1908,6 +1974,7 @@ class CallActivity : CallBaseActivity() {
 
                     override fun onError(e: Throwable) {
                         Log.e(TAG, "joinRoom onError", e)
+                        directCall?.fail(e)
                     }
 
                     override fun onComplete() {
@@ -1928,6 +1995,11 @@ class CallActivity : CallBaseActivity() {
      */
     private fun handleRoomJoinFailed() {
         Log.d(TAG, "onMessageEvent 'roomJoinFailed'")
+        directCall?.let {
+            // The fresh session of a call attempt is not replaced.
+            it.connectionLost()
+            return
+        }
         if (!shouldRefreshRoomSession(currentCallStatus, roomJoinRefreshes)) {
             if (currentCallStatus !== CallStatus.IN_CONVERSATION) {
                 Log.e(TAG, "Joining the room for the call failed repeatedly, leaving")
@@ -1976,7 +2048,8 @@ class CallActivity : CallBaseActivity() {
                         val conversation = roomOverall.ocs!!.data
                         currentConversation = conversation
                         callRecordingViewModel!!.setRecordingState(conversation!!.callRecording)
-                        callSession = conversation.sessionId
+                        // The room session of a call attempt stays the one it was bound to.
+                        callSession = directCall?.roomSession ?: conversation.sessionId
 
                         setInitialApplicationWideCurrentRoomHolderValues(conversation)
 
@@ -2004,6 +2077,13 @@ class CallActivity : CallBaseActivity() {
                 })
         }
 
+        val screen = directCall
+        val roomSession = screen?.roomSession
+        if (screen != null && (roomSession == null || screen.isBound)) {
+            Log.d(TAG, "performCall: the call attempt is already prepared or has no room session yet")
+            return
+        }
+
         var inCallFlag = ParticipantDto.InCallFlags.IN_CALL
         if (canPublishAudioStream) {
             inCallFlag += ParticipantDto.InCallFlags.WITH_AUDIO
@@ -2023,16 +2103,31 @@ class CallActivity : CallBaseActivity() {
             )
         }
 
+        if (screen != null && roomSession != null) {
+            screen.prepare(roomSession, isVoiceOnlyCall, recordingConsentGiven) { callId ->
+                joinCall(inCallFlag, callId) { getRoomAndContinue() }
+            }
+        } else {
+            joinCall(inCallFlag, null) { getRoomAndContinue() }
+        }
+    }
+
+    /**
+     * Joins the media of the call; with the [callId] of a call attempt, a failure stops the attempt locally.
+     */
+    private fun joinCall(inCallFlag: Int, callId: String?, onJoined: () -> Unit) {
         val apiVersion = ApiUtils.getCallApiVersion(conversationUser, intArrayOf(ApiUtils.API_V4, 1))
-        ncApi!!.joinCall(
+        val request = ncApi!!.joinCall(
             credentials,
             ApiUtils.getUrlForCall(apiVersion, baseUrl, roomToken!!),
             inCallFlag,
             isCallWithoutNotification,
-            recordingConsentGiven
+            recordingConsentGiven,
+            callId
         )
             .subscribeOn(Schedulers.io())
-            .retry(API_RETRIES)
+        // A call attempt binds the media join once; the attempt decides about retries.
+        (if (callId == null) request.retry(API_RETRIES) else request)
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe(object : Observer<GenericOverall> {
                 override fun onSubscribe(d: Disposable) {
@@ -2040,13 +2135,18 @@ class CallActivity : CallBaseActivity() {
                 }
 
                 override fun onNext(genericOverall: GenericOverall) {
-                    getRoomAndContinue()
+                    onJoined()
                 }
 
                 override fun onError(e: Throwable) {
                     logger.e(TAG, "Failed to join call", e)
-                    Snackbar.make(binding!!.root, R.string.nc_common_error_sorry, Snackbar.LENGTH_LONG).show()
-                    hangup(true, false)
+                    val screen = directCall
+                    if (callId != null && screen != null) {
+                        screen.fail(e)
+                    } else {
+                        Snackbar.make(binding!!.root, R.string.nc_common_error_sorry, Snackbar.LENGTH_LONG).show()
+                        hangup(true, false)
+                    }
                 }
 
                 override fun onComplete() {
@@ -2215,7 +2315,11 @@ class CallActivity : CallBaseActivity() {
                     messageSender = createMessageSender()
 
                     if (!webSocketCommunicationEvent.getHashMap()!!.containsKey("oldResumeId")) {
-                        if (currentCallStatus === CallStatus.RECONNECTING) {
+                        val screen = directCall
+                        if (screen?.isBound == true) {
+                            // The signaling session bound to the call attempt was lost.
+                            screen.connectionLost()
+                        } else if (currentCallStatus === CallStatus.RECONNECTING) {
                             hangup(false, false)
                         } else {
                             setCallState(CallStatus.RECONNECTING)
@@ -2315,6 +2419,7 @@ class CallActivity : CallBaseActivity() {
         Log.d(TAG, "hangup! shutDownView=$shutDownView, endCallForAll=$endCallForAll")
         joinRoomInitiated = false
         if (shutDownView) {
+            directCall?.hangUp()
             setCallState(CallStatus.LEAVING)
         }
         stopCallingSound()
@@ -2421,9 +2526,17 @@ class CallActivity : CallBaseActivity() {
 
         // Fire DELETE best-effort; do not block the UI waiting for the server response.
         // The subscription runs entirely on the IO thread — no observeOn(mainThread) needed.
-        ncApi!!.leaveCall(credentials, ApiUtils.getUrlForCall(apiVersion, baseUrl, roomToken!!), endCall)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
+        val screen = directCall
+        val url = ApiUtils.getUrlForCall(apiVersion, baseUrl, roomToken!!)
+        val leaveRequest = when {
+            screen == null -> ncApi!!.leaveCall(credentials, url, endCall)
+            // While the attempt runs, only its business action ends it.
+            !screen.isBound || !screen.mayLeaveMedia -> null
+            else -> screen.session.callId?.let { ncApi!!.leaveDirectCall(credentials, url, it, false) }
+        }
+        leaveRequest
+            ?.subscribeOn(Schedulers.io())
+            ?.subscribe(
                 { /* successfully left call */ },
                 { e -> Log.w(TAG, "Something went wrong when leaving the call", e) }
             )
@@ -2446,8 +2559,8 @@ class CallActivity : CallBaseActivity() {
             finish()
         } else if (shutDownView) {
             finish()
-        } else if (currentCallStatus === CallStatus.RECONNECTING ||
-            currentCallStatus === CallStatus.PUBLISHER_FAILED
+        } else if (directCall?.isBound != true &&
+            (currentCallStatus === CallStatus.RECONNECTING || currentCallStatus === CallStatus.PUBLISHER_FAILED)
         ) {
             initiateCall()
         }
@@ -2601,7 +2714,8 @@ class CallActivity : CallBaseActivity() {
             ApplicationWideCurrentRoomHolder.getInstance().isInCall
         ) {
             Log.d(TAG, "Most probably a moderator ended the call for all.")
-            hangup(shutDownView = true, endCallForAll = false)
+            val screen = directCall
+            if (screen != null) screen.leftCall() else hangup(shutDownView = true, endCallForAll = false)
             return
         }
 
@@ -2780,6 +2894,9 @@ class CallActivity : CallBaseActivity() {
                 } else {
                     callViewModel.getParticipant(sessionId)?.setPeerConnection(peerConnectionWrapper)
                 }
+                if (directCall != null && VIDEO_STREAM_TYPE_VIDEO == type) {
+                    peerConnectionWrapper.addObserver(remoteMediaObserver)
+                }
             }
             if (publisher) {
                 peerConnectionWrapper.addObserver(selfPeerConnectionObserver)
@@ -2940,6 +3057,7 @@ class CallActivity : CallBaseActivity() {
         ) {
             peerConnectionWrapper.removeObserver(selfPeerConnectionObserver)
         }
+        peerConnectionWrapper.removeObserver(remoteMediaObserver)
 
         if ("screen" == type) {
             callViewModel.getParticipant(sessionId)?.setScreenPeerConnection(null)
@@ -3047,7 +3165,10 @@ class CallActivity : CallBaseActivity() {
                 CallStatus.PUBLISHER_FAILED -> handler!!.post { handleCallStatePublisherFailed() }
                 CallStatus.RECONNECTING -> handler!!.post { handleCallStateReconnecting() }
                 CallStatus.JOINED -> {
-                    handler!!.postDelayed(callingTimeoutRunnable, CALLING_TIMEOUT)
+                    // A call attempt has its own deadline on the server.
+                    if (directCall == null) {
+                        handler!!.postDelayed(callingTimeoutRunnable, CALLING_TIMEOUT)
+                    }
                     handler!!.post { handleCallStateJoined() }
                 }
 
@@ -3411,6 +3532,9 @@ class CallActivity : CallBaseActivity() {
         }
 
         override fun onIceConnectionStateChanged(iceConnectionState: IceConnectionState) {
+            if (iceConnectionState.isMediaConnected()) {
+                directCall?.mediaConnected(publisher = true, hasMcu = hasMCU)
+            }
             runOnUiThread {
                 if (iceConnectionState == IceConnectionState.FAILED) {
                     // Don't hang up if the activity is just backgrounded (e.g., task switching).
@@ -3420,6 +3544,12 @@ class CallActivity : CallBaseActivity() {
                         Log.d(TAG, "ICE FAILED while backgrounded, skipping hangup (will recover on resume)")
                         return@runOnUiThread
                     }
+                    val screen = directCall
+                    if (screen != null) {
+                        // Publishing again would need another session, which a call attempt must not use.
+                        screen.connectionLost()
+                        return@runOnUiThread
+                    }
                     setCallState(CallStatus.PUBLISHER_FAILED)
                     webSocketClient!!.clearResumeId()
                     hangup(false, false)
@@ -3427,6 +3557,25 @@ class CallActivity : CallBaseActivity() {
             }
         }
     }
+
+    private inner class RemoteMediaObserver : PeerConnectionObserver {
+        override fun onStreamAdded(mediaStream: MediaStream) {
+            // unused atm
+        }
+
+        override fun onStreamRemoved(mediaStream: MediaStream) {
+            // unused atm
+        }
+
+        override fun onIceConnectionStateChanged(iceConnectionState: IceConnectionState) {
+            if (iceConnectionState.isMediaConnected()) {
+                directCall?.mediaConnected(publisher = false, hasMcu = hasMCU)
+            }
+        }
+    }
+
+    private fun IceConnectionState.isMediaConnected(): Boolean =
+        this == IceConnectionState.CONNECTED || this == IceConnectionState.COMPLETED
 
     private inner class InternalSignalingMessageSender : SignalingMessageSender {
         override fun send(ncSignalingMessage: NCSignalingMessageDto) {

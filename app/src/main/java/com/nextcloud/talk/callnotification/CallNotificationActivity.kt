@@ -25,6 +25,8 @@ import com.nextcloud.talk.application.NextcloudTalkApplication
 import com.nextcloud.talk.application.NextcloudTalkApplication.Companion.sharedApplication
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.databinding.CallNotificationActivityBinding
+import com.nextcloud.talk.directcall.CallAttempt
+import com.nextcloud.talk.directcall.DirectCallManager
 import com.nextcloud.talk.extensions.loadUserAvatar
 import com.nextcloud.talk.models.json.participants.ParticipantDto
 import com.nextcloud.talk.utils.ApiUtils
@@ -49,6 +51,9 @@ class CallNotificationActivity : CallBaseActivity() {
     @JvmField
     @Inject
     var cache: Cache? = null
+
+    @Inject
+    lateinit var directCallManager: DirectCallManager
 
     private var roomToken: String? = null
     private var notificationTimestamp: Int? = null
@@ -192,7 +197,17 @@ class CallNotificationActivity : CallBaseActivity() {
 
     private fun hangup() {
         leavingScreen = true
+        rejectDirectCall()
         finish()
+    }
+
+    private fun rejectDirectCall() {
+        val callId = intent.extras?.getString(BundleKeys.KEY_CALL_ID)?.takeIf { CallAttempt.isCallId(it) }
+        val accountId = userBeingCalled.id
+        val token = roomToken?.takeIf { it.isNotEmpty() }
+        if (callId != null && accountId != null && token != null) {
+            directCallManager.incoming(accountId, token, callId).finishByUser()
+        }
     }
 
     private fun proceedToCall() {

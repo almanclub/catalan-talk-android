@@ -8,6 +8,8 @@
 package com.nextcloud.talk.webrtc
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.text.TextUtils
 import android.util.Log
 import autodagger.AutoInjector
@@ -17,6 +19,7 @@ import com.nextcloud.talk.application.NextcloudTalkApplication.Companion.sharedA
 import com.nextcloud.talk.call.e2ee.CallEncryption
 import com.nextcloud.talk.call.e2ee.EncryptionMessage
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.DirectCallManager
 import com.nextcloud.talk.events.NetworkEvent
 import com.nextcloud.talk.events.WebSocketCommunicationEvent
 import com.nextcloud.talk.models.json.participants.ParticipantDto
@@ -67,6 +70,11 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
     @JvmField
     @Inject
     var context: Context? = null
+
+    @JvmField
+    @Inject
+    var directCallManager: DirectCallManager? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val conversationUser: User
     private val webSocketTicket: String
     private var resumeId: String? = null
@@ -317,7 +325,20 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
                     recordingHashMap[BundleKeys.KEY_RECORDING_STATE] = status.toString()
                     eventBus!!.post(WebSocketCommunicationEvent("recordingStatus", recordingHashMap))
                 }
+            } else {
+                processCallState(dataHashMap)
             }
+        }
+    }
+
+    /**
+     * A call_state message only tells that a call attempt changed; its snapshot is fetched from the server. The
+     * attempts of all rooms of the account are checked, as the room ID of a federated room is not the local token.
+     */
+    private fun processCallState(dataHashMap: Map<*, *>?) {
+        val accountId = conversationUser.id
+        if (dataHashMap?.get("type") == CALL_STATE_TYPE && accountId != null) {
+            mainHandler.post { directCallManager?.reconcile(accountId) }
         }
     }
 
@@ -643,6 +664,7 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
 
     companion object {
         private const val TAG = "WebSocketInstance"
+        private const val CALL_STATE_TYPE = "call_state"
         private const val NORMAL_CLOSURE = 1000
         private const val PING_INTERVAL_SECONDS: Long = 30
 

@@ -322,7 +322,7 @@ class DirectCallSession internal constructor(
         resolutionTimer?.cancel()
         resolutionTimer = null
         snapshotAt = host.uptimeMillis()
-        error = null
+        if (!stoppedLocally) error = null
         armDeadline(attempt)
         if (isTerminal) {
             polling?.cancel()
@@ -441,7 +441,7 @@ class DirectCallSession internal constructor(
             stoppedLocally = true
             completePreparation(Result.failure(failure))
         }
-        if (recoveredReadOnly && ocs?.statusCode == CallAttemptException.HTTP_NOT_FOUND) {
+        if (ocs?.statusCode == CallAttemptException.HTTP_NOT_FOUND && (recoveredReadOnly || callId != null)) {
             resolveAbsent()
         }
         host.changed(this)

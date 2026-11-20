@@ -16,6 +16,7 @@ import com.nextcloud.talk.directcall.CallAttemptFixtures.attemptJson
 import com.nextcloud.talk.directcall.CallAttemptFixtures.ended
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -32,6 +33,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("TooManyFunctions")
 class DirectCallManagerTest {
 
     private class FakeBackend : DirectCallBackend {
@@ -228,6 +230,71 @@ class DirectCallManagerTest {
             manager.detach(fresh)
             assertFalse(manager.hasUnresolvedCall(1, "other"))
             assertNull(manager.current(1, "other"))
+        }
+
+    @Test
+    fun announcedCallRingsOnlyOnceTheServerConfirmedIt() =
+        runTest {
+            val backend = FakeBackend().apply { handler = { attempt() } }
+            val manager = manager(backend)
+
+            val session = manager.announceIncoming(1, "room", CALL_ID)!!
+
+            assertEquals(listOf("/$CALL_ID"), backend.paths())
+            assertTrue(manager.mayRing(session))
+            assertNull(manager.announceIncoming(1, "room", CALL_ID))
+            session.apply(attempt(State.CONNECTING, version = 2))
+            assertFalse(manager.mayRing(session))
+        }
+
+    @Test
+    fun announcedCallDoesNotRingWhenTheServerDoesNotAnswer() =
+        runTest {
+            val backend = FakeBackend().apply { handler = { CompletableDeferred<CallAttempt?>().await() } }
+            val manager = manager(backend)
+
+            val session = manager.announceIncoming(1, "room", CALL_ID)!!
+
+            assertFalse(manager.mayRing(session))
+        }
+
+    @Test
+    fun missedCallIsReportedOnceAndOnlyForAnUnansweredAnnouncedCall() =
+        runTest {
+            val manager = manager(FakeBackend())
+            val missed = manager.announceIncoming(1, "room", CALL_ID)!!
+            val rejected = manager.announceIncoming(1, "other", OTHER_CALL_ID)!!
+            val unannounced = manager.incoming(1, "silent", CALL_ID)
+
+            missed.apply(ended(Outcome.NO_ANSWER))
+            rejected.apply(ended(Outcome.REJECTED, callId = OTHER_CALL_ID))
+            unannounced.apply(ended(Outcome.NO_ANSWER))
+
+            assertTrue(manager.takeMissedCall(missed))
+            assertFalse(manager.takeMissedCall(missed))
+            assertFalse(manager.takeMissedCall(rejected))
+            assertFalse(manager.takeMissedCall(unannounced))
+        }
+
+    @Test
+    fun watchingAnIncomingCallStopsOnceItNoLongerRings() =
+        runTest {
+            val manager = manager(FakeBackend())
+            val session = manager.incoming(1, "room", CALL_ID)
+            val other = manager.incoming(1, "other", OTHER_CALL_ID)
+            session.apply(attempt())
+            val seen = mutableListOf<State?>()
+            val watch = launch { manager.watchIncoming(session) { seen += it.snapshot?.state } }
+            runCurrent()
+
+            other.apply(attempt(callId = OTHER_CALL_ID))
+            session.apply(attempt(State.CONNECTING, version = 2))
+            runCurrent()
+            session.apply(ended(Outcome.COMPLETED))
+            runCurrent()
+
+            assertEquals(listOf(State.RINGING, State.CONNECTING), seen)
+            assertTrue(watch.isCompleted)
         }
 
     @Test

@@ -72,6 +72,7 @@ import com.nextcloud.talk.conversationtags.viewmodels.ConversationTagsViewModel
 import com.nextcloud.talk.dagger.modules.assistedViewModels
 import com.nextcloud.talk.data.network.NetworkMonitor
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.DirectCallManager
 import com.nextcloud.talk.events.ConversationsListFetchDataEvent
 import com.nextcloud.talk.events.EventStatus
 import com.nextcloud.talk.invitation.InvitationsActivity
@@ -183,6 +184,9 @@ class ConversationsListActivity : BaseActivity() {
 
     @Inject
     lateinit var chatAudioSpeeds: ChatAudioSpeeds
+
+    @Inject
+    lateinit var directCallManager: DirectCallManager
 
     private lateinit var chatAudioPlayer: ChatAudioPlayer
 
@@ -1318,6 +1322,7 @@ class ConversationsListActivity : BaseActivity() {
             if (it.objectType == ConversationEnums.ObjectType.ROOM) {
                 bundle.putBoolean(KEY_IS_BREAKOUT_ROOM, true)
             }
+            bundle.putBoolean(BundleKeys.KEY_DIRECT_CALL, DirectCallManager.isEnabled(it, currentUser))
 
             val callIntent = Intent(this, CallActivity::class.java)
             callIntent.putExtras(bundle)
@@ -1341,6 +1346,9 @@ class ConversationsListActivity : BaseActivity() {
             val pp = ParticipantPermissions(currentUser.capabilities?.spreedCapability, it)
             if (!pp.canStartCall() && selectedConversation?.hasCall == false) {
                 Log.e(TAG, "Error starting call from conversations list: call is forbidden")
+            } else if (directCallManager.hasUnresolvedCall(currentUser.id!!, it.token)) {
+                directCallManager.reconcile(currentUser.id!!, it.token)
+                showSnackbar(context.getString(R.string.nc_call_already_in_progress))
             } else {
                 ApplicationWideCurrentRoomHolder.getInstance().isDialing = true
                 val callIntent = getIntentForCall(isVoiceOnlyCall, callWithoutNotification)

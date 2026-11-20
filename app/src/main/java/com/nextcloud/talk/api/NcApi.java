@@ -56,6 +56,7 @@ import retrofit2.http.FieldMap;
 import retrofit2.http.FormUrlEncoded;
 import retrofit2.http.GET;
 import retrofit2.http.HEAD;
+import retrofit2.http.HTTP;
 import retrofit2.http.Header;
 import retrofit2.http.Multipart;
 import retrofit2.http.POST;
@@ -214,7 +215,8 @@ public interface NcApi {
                                         @Url String url,
                                         @Field("flags") Integer inCall,
                                         @Field("silent") Boolean callWithoutNotification,
-                                        @Nullable @Field("recordingConsent") Boolean recordingConsent);
+                                        @Nullable @Field("recordingConsent") Boolean recordingConsent,
+                                        @Nullable @Field("callId") String callId);
 
     /*
     Server URL is: baseUrl + ocsApiVersion + spreedApiVersion + /call/callToken
@@ -222,6 +224,13 @@ public interface NcApi {
     @DELETE
     Observable<GenericOverall> leaveCall(@Nullable @Header("Authorization") String authorization, @Url String url,
                                          @Nullable @Query("all") Boolean all);
+
+    @FormUrlEncoded
+    @HTTP(method = "DELETE", hasBody = true)
+    Observable<GenericOverall> leaveDirectCall(@Nullable @Header("Authorization") String authorization,
+                                               @Url String url,
+                                               @Field("callId") String callId,
+                                               @Field("all") Boolean all);
 
     @GET
     Observable<SignalingSettingsOverall> getSignalingSettings(@Nullable @Header("Authorization") String authorization,

@@ -22,17 +22,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
 
 /**
  * Owns the [DirectCallSession]s of all accounts and retries their pending business actions.
  *
  * Every function has to be called on the main thread.
  */
+@Suppress("TooManyFunctions")
 @Singleton
 class DirectCallManager internal constructor(
     private val backend: DirectCallBackend,
@@ -59,6 +66,7 @@ class DirectCallManager internal constructor(
     }
 
     private val sessions = mutableListOf<DirectCallSession>()
+    private val announcedCallIds = LinkedHashSet<String>()
     private val latestSequences = mutableMapOf<String, Long>()
     private val queue = DirectCallActionQueue(backend, store, scope) { sessions.toList() }
     private val mutableChanges = MutableSharedFlow<DirectCallSession>(extraBufferCapacity = CHANGES_BUFFER)
@@ -120,8 +128,69 @@ class DirectCallManager internal constructor(
         }
     }
 
-    fun reconcile(accountId: Long, token: String) {
-        sessions.filter { it.isIn(accountId, token) && !it.isTerminal }.forEach { it.reconcile() }
+    fun reconcile(accountId: Long, token: String? = null) {
+        sessions.filter { it.accountId == accountId && (token == null || it.token == token) && !it.isTerminal }
+            .forEach { it.reconcile() }
+    }
+
+    /**
+     * Looks up the attempt [callId] announced by a push and returns its session, or null when the attempt has already
+     * been announced. The lookup waits for one fetch of the snapshot at most.
+     */
+    suspend fun announceIncoming(accountId: Long, token: String, callId: String): DirectCallSession? {
+        if (!announcedCallIds.add(callId)) {
+            return null
+        }
+        if (announcedCallIds.size > MAX_ANNOUNCED_CALLS) {
+            announcedCallIds.remove(announcedCallIds.first())
+        }
+        val session = incoming(accountId, token, callId)
+        session.announcedIncoming = true
+        withTimeoutOrNull(ANNOUNCE_TIMEOUT_MS) {
+            suspendCancellableCoroutine { continuation -> session.reconcile { continuation.resume(Unit) } }
+        }
+        return session
+    }
+
+    /**
+     * Whether the server confirmed that the incoming [session] is ringing and this device may still ring.
+     */
+    fun mayRing(session: DirectCallSession): Boolean =
+        session.snapshot?.state == CallAttempt.State.RINGING &&
+            !session.stoppedLocally &&
+            !session.endedByUser &&
+            !isSuperseded(session)
+
+    /**
+     * Whether the callee missed the announced [session] and has not been told yet; afterwards it counts as told.
+     */
+    fun takeMissedCall(session: DirectCallSession): Boolean {
+        val missed = session.snapshot?.outcome == CallAttempt.Outcome.NO_ANSWER &&
+            session.announcedIncoming &&
+            !session.initiator &&
+            !session.acceptedLocally &&
+            !session.endedByUser &&
+            !session.notifiedMissed &&
+            !isSuperseded(session)
+        if (missed) {
+            session.notifiedMissed = true
+        }
+        return missed
+    }
+
+    /**
+     * Calls [onChange] with the announced [session] and after each of its changes, until it can neither ring nor be
+     * missed anymore.
+     */
+    suspend fun watchIncoming(session: DirectCallSession, onChange: (DirectCallSession) -> Unit) {
+        changes.onStart { emit(session) }
+            .filter { it === session }
+            .transformWhile {
+                emit(it)
+                val state = it.snapshot?.state
+                !it.isTerminal && !isSuperseded(it) && (state == null || state == CallAttempt.State.RINGING)
+            }
+            .collect(onChange)
     }
 
     /**
@@ -214,6 +283,8 @@ class DirectCallManager internal constructor(
         private val TAG = DirectCallManager::class.java.simpleName
         private const val PREFERENCES = "catalan_direct_calls"
         private const val CHANGES_BUFFER = 64
+        private const val ANNOUNCE_TIMEOUT_MS = 10000L
+        private const val MAX_ANNOUNCED_CALLS = 100
 
         fun isEnabled(conversation: ConversationModel?, user: User?): Boolean =
             DirectCallHistory.isDirectRoom(conversation) && DirectCallHistory.isSupported(user)

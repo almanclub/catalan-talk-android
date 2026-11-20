@@ -141,6 +141,7 @@ import com.nextcloud.talk.data.network.NetworkMonitor
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.databinding.ActivityChatBinding
 import com.nextcloud.talk.directcall.DirectCallHistory
+import com.nextcloud.talk.directcall.DirectCallManager
 import com.nextcloud.talk.events.UserMentionClickEvent
 import com.nextcloud.talk.events.WebSocketCommunicationEvent
 import com.nextcloud.talk.jobs.DeleteConversationWorker
@@ -305,6 +306,9 @@ class ChatActivity :
 
     @Inject
     lateinit var chatViewModelFactory: ChatViewModel.ChatViewModelFactory
+
+    @Inject
+    lateinit var directCallManager: DirectCallManager
 
     /**
      * The user of this chat as loaded in [onCreate], used to create [chatViewModel]. Afterwards use
@@ -3341,6 +3345,11 @@ class ChatActivity :
     }
 
     private fun startACall(isVoiceOnlyCall: Boolean, callWithoutNotification: Boolean) {
+        if (directCallManager.hasUnresolvedCall(conversationUserId, roomToken)) {
+            directCallManager.reconcile(conversationUserId, roomToken)
+            Snackbar.make(binding.root, R.string.nc_call_already_in_progress, Snackbar.LENGTH_LONG).show()
+            return
+        }
         currentConversation?.let {
             val pp = ParticipantPermissions(spreedCapabilities, it)
             if (!pp.canStartCall() && currentConversation?.hasCall == false) {
@@ -3384,6 +3393,7 @@ class ChatActivity :
             if (it.objectType == ConversationEnums.ObjectType.ROOM) {
                 bundle.putBoolean(KEY_IS_BREAKOUT_ROOM, true)
             }
+            bundle.putBoolean(BundleKeys.KEY_DIRECT_CALL, DirectCallManager.isEnabled(it, conversationUser))
 
             val callIntent = Intent(this, CallActivity::class.java)
             callIntent.putExtras(bundle)

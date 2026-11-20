@@ -61,6 +61,10 @@ import com.nextcloud.talk.callnotification.CallNotificationActivity
 import com.nextcloud.talk.chat.data.network.ChatNetworkDataSource
 import com.nextcloud.talk.conversationlist.DirectShareHelper
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.CallAttempt
+import com.nextcloud.talk.directcall.DirectCallHistory
+import com.nextcloud.talk.directcall.DirectCallManager
+import com.nextcloud.talk.directcall.DirectCallSession
 import com.nextcloud.talk.logger.Logger
 import com.nextcloud.talk.models.domain.ConversationModel
 import com.nextcloud.talk.models.json.chat.ChatUtils.Companion.getParsedMessage
@@ -90,6 +94,7 @@ import com.nextcloud.talk.utils.NotificationUtils.loadAvatarSync
 import com.nextcloud.talk.utils.ParticipantPermissions
 import com.nextcloud.talk.utils.PushUtils
 import com.nextcloud.talk.utils.bundle.BundleKeys
+import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_CALL_ID
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_DISMISS_RECORDING_URL
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_FROM_NOTIFICATION_START_CALL
 import com.nextcloud.talk.utils.bundle.BundleKeys.KEY_INTERNAL_USER_ID
@@ -109,6 +114,8 @@ import io.reactivex.Observable
 import io.reactivex.Observer
 import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.JavaNetCookieJar
 import okhttp3.OkHttpClient
@@ -149,6 +156,9 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
 
     @Inject
     lateinit var blockedUsersRepository: BlockedUsersRepository
+
+    @Inject
+    lateinit var directCallManager: DirectCallManager
 
     @JvmField
     @Inject
@@ -258,12 +268,13 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
     private fun handleCallPushMessage() {
         val userBeingCalled = runBlocking { userManager.getUserWithId(user.id!!) }
 
-        fun createBundle(conversation: ConversationModel): Bundle {
+        fun createBundle(conversation: ConversationModel, callId: String?): Bundle {
             val bundle = Bundle()
             bundle.putString(KEY_ROOM_TOKEN, pushMessage.id)
             bundle.putInt(KEY_NOTIFICATION_TIMESTAMP, pushMessage.timestamp.toInt())
             bundle.putLong(KEY_INTERNAL_USER_ID, user.id!!)
             bundle.putBoolean(KEY_FROM_NOTIFICATION_START_CALL, true)
+            callId?.let { bundle.putString(KEY_CALL_ID, it) }
 
             val isOneToOneCall = conversation.type == ConversationEnums.ConversationType.ROOM_TYPE_ONE_TO_ONE_CALL
 
@@ -292,9 +303,9 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
         }
 
         @Suppress("LongMethod")
-        fun prepareCallNotificationScreen(conversation: ConversationModel) {
+        fun prepareCallNotificationScreen(conversation: ConversationModel, directCall: DirectCallSession?) {
             val fullScreenIntent = Intent(context, CallNotificationActivity::class.java)
-            val bundle = createBundle(conversation)
+            val bundle = createBundle(conversation, directCall?.callId)
 
             fullScreenIntent.putExtras(bundle)
             fullScreenIntent.flags = getIntentFlags()
@@ -338,6 +349,11 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
                 requestCode + DECLINE_CALL_REQUEST_OFFSET,
                 Intent(applicationContext, DeclineCallReceiver::class.java).apply {
                     putExtra(KEY_NOTIFICATION_TIMESTAMP, pushMessage.timestamp.toInt())
+                    directCall?.callId?.let {
+                        putExtra(KEY_CALL_ID, it)
+                        putExtra(KEY_ROOM_TOKEN, pushMessage.id)
+                        putExtra(KEY_INTERNAL_USER_ID, user.id!!)
+                    }
                 },
                 pendingIntentFlags
             )
@@ -387,7 +403,11 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
 
             sendNotification(pushMessage.timestamp.toInt(), notification)
 
-            checkIfCallIsActive(conversation)
+            if (directCall == null) {
+                checkIfCallIsActive(conversation)
+            } else {
+                watchDirectCall(conversation, directCall)
+            }
         }
 
         val conversation = try {
@@ -398,7 +418,55 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
         }
 
         if (conversation != null && userBeingCalled != null && !isBlockedOneToOneCaller(conversation)) {
-            prepareCallNotificationScreen(conversation)
+            val callId = pushMessage.callId?.takeIf {
+                CallAttempt.isCallId(it) && DirectCallHistory.isDirectRoom(conversation)
+            }
+            if (callId == null) {
+                prepareCallNotificationScreen(conversation, null)
+            } else {
+                announceDirectCall(conversation, callId)?.let { prepareCallNotificationScreen(conversation, it) }
+            }
+        }
+    }
+
+    /**
+     * Looks up the call attempt [callId] of a push and returns its session when the server confirmed that it is
+     * ringing. A delayed push of an attempt that nobody answered shows the missed call instead.
+     */
+    private fun announceDirectCall(conversation: ConversationModel, callId: String): DirectCallSession? =
+        runBlocking(Dispatchers.Main) {
+            val session = directCallManager.announceIncoming(user.id!!, pushMessage.id!!, callId)
+            when {
+                session == null -> {
+                    logger.d(TAG, "Ignoring a repeated push of call attempt $callId")
+                    null
+                }
+                directCallManager.mayRing(session) -> session
+                else -> {
+                    if (directCallManager.takeMissedCall(session)) {
+                        notifyMissedCall(conversation)
+                    }
+                    logger.d(TAG, "Call attempt $callId is not ringing anymore")
+                    null
+                }
+            }
+        }
+
+    /**
+     * Removes the ringing notification as soon as the call attempt of [session] stopped ringing on this device, and
+     * shows a missed call when nobody answered.
+     */
+    private fun watchDirectCall(conversation: ConversationModel, session: DirectCallSession) {
+        val notificationId = pushMessage.timestamp.toInt()
+        directCallManager.scope.launch {
+            directCallManager.watchIncoming(session) {
+                if (directCallManager.takeMissedCall(it)) {
+                    notifyMissedCall(conversation)
+                }
+                if (!directCallManager.mayRing(it)) {
+                    removeNotification(notificationId)
+                }
+            }
         }
     }
 
@@ -1301,44 +1369,48 @@ class NotificationWorker(context: Context, workerParams: WorkerParameters) : Wor
         )
 
         if (isOngoingCallNotificationVisible) {
-            val notificationBuilder = NotificationCompat.Builder(
-                context!!,
-                NotificationUtils.NotificationChannels
-                    .NOTIFICATION_CHANNEL_MESSAGES_V4.name
-            )
-
-            val intent = createMainActivityIntent()
-
-            val notification: Notification = notificationBuilder
-                .setContentTitle(
-                    String.format(
-                        context!!.resources.getString(R.string.nc_missed_call),
-                        conversation.displayName
-                    )
-                )
-                .setSmallIcon(R.drawable.ic_baseline_phone_missed_24)
-                .setOngoing(false)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setContentIntent(createUniquePendingIntent(intent))
-                .build()
-
-            val notificationId: Int = SystemClock.uptimeMillis().toInt()
-            if (ActivityCompat.checkSelfPermission(
-                    applicationContext,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
-                return
-            }
-            notificationManager.notify(notificationId, notification)
-            Log.d(TAG, "'you missed a call' notification was created")
+            notifyMissedCall(conversation)
         }
+    }
+
+    private fun notifyMissedCall(conversation: ConversationModel) {
+        val notificationBuilder = NotificationCompat.Builder(
+            context!!,
+            NotificationUtils.NotificationChannels
+                .NOTIFICATION_CHANNEL_MESSAGES_V4.name
+        )
+
+        val intent = createMainActivityIntent()
+
+        val notification: Notification = notificationBuilder
+            .setContentTitle(
+                String.format(
+                    context!!.resources.getString(R.string.nc_missed_call),
+                    conversation.displayName
+                )
+            )
+            .setSmallIcon(R.drawable.ic_baseline_phone_missed_24)
+            .setOngoing(false)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(createUniquePendingIntent(intent))
+            .build()
+
+        val notificationId: Int = SystemClock.uptimeMillis().toInt()
+        if (ActivityCompat.checkSelfPermission(
+                applicationContext,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return
+        }
+        notificationManager.notify(notificationId, notification)
+        Log.d(TAG, "'you missed a call' notification was created")
     }
 
     private fun createMainActivityIntent(): Intent {

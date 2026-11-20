@@ -57,12 +57,15 @@ data class DecryptedPushMessageDto(
     var timestamp: Long,
 
     @JsonIgnore
-    var objectId: String?
+    var objectId: String?,
+
+    @JsonField(name = ["callId"])
+    var callId: String? = null
 ) : Parcelable {
     // This constructor is added to work with the 'com.bluelinelabs.logansquare.annotation.JsonObject'
-    constructor() : this(null, null, "", null, 0, null, false, false, false, null, null, 0, null)
+    constructor() : this(null, null, "", null, 0, null, false, false, false, null, null, 0, null, null)
 
-    @Suppress("Detekt.ComplexMethod")
+    @Suppress("Detekt.ComplexMethod", "CyclomaticComplexMethod")
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -82,10 +85,12 @@ data class DecryptedPushMessageDto(
         if (text != other.text) return false
         if (timestamp != other.timestamp) return false
         if (objectId != other.objectId) return false
+        if (callId != other.callId) return false
 
         return true
     }
 
+    @Suppress("CyclomaticComplexMethod")
     override fun hashCode(): Int {
         var result = app?.hashCode() ?: 0
         result = 31 * result + (type?.hashCode() ?: 0)
@@ -100,6 +105,7 @@ data class DecryptedPushMessageDto(
         result = 31 * result + (text?.hashCode() ?: 0)
         result = 31 * result + (timestamp?.hashCode() ?: 0)
         result = 31 * result + (objectId?.hashCode() ?: 0)
+        result = 31 * result + (callId?.hashCode() ?: 0)
         return result
     }
 }

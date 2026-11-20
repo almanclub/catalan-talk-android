@@ -683,6 +683,9 @@ How to translate with transifex:
     <string name="nc_call_history_video">Video call</string>
     <string name="nc_call_history_detail">%1$s · %2$s</string>
     <string name="nc_call_history_call_back">Call back</string>
+    <string name="nc_call_already_in_progress">A call is already in progress</string>
+    <string name="nc_call_answered_elsewhere">Answered on another device</string>
+    <string name="nc_call_no_response">No response from server</string>
     <plurals name="nc_conversation_auto_delete_info">
         <item quantity="one">This conversation will be automatically deleted for everyone in %1$d day of no activity</item>
         <item quantity="other">This conversation will be automatically deleted for everyone in %1$d days of no activity</item>

@@ -34,9 +34,10 @@ class CallAttemptException(
         private const val HTTP_SERVER_ERROR = 500
 
         const val ANSWERED_ELSEWHERE = "answered_elsewhere"
+        const val UNAVAILABLE = "unavailable"
 
         fun invalidResponse(cause: Throwable? = null) = CallAttemptException(0, isOcs = false, cause = cause)
 
-        fun unavailable() = CallAttemptException(0, errorKey = "unavailable", isOcs = false)
+        fun unavailable() = CallAttemptException(0, errorKey = UNAVAILABLE, isOcs = false)
     }
 }
