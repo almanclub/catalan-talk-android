@@ -20,6 +20,7 @@ import com.nextcloud.talk.data.database.model.ChatBlockEntity
 import com.nextcloud.talk.data.database.model.ChatMessageEntity
 import com.nextcloud.talk.data.network.NetworkMonitor
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.DirectCallHistory
 import com.nextcloud.talk.models.json.chat.ChatMessageDto
 import com.nextcloud.talk.utils.CapabilitiesUtil
 import com.nextcloud.talk.utils.SpreedFeatures
@@ -62,7 +63,8 @@ class ChatMessageSyncer @Inject constructor(
         val roomToken: String,
         val threadId: Long?,
         val credentials: String,
-        val urlForChatting: String
+        val urlForChatting: String,
+        val hidesDirectCallEvents: Boolean = false
     ) {
         val internalConversationId: String = "${user.id}@$roomToken"
         val accountId: Long
@@ -696,16 +698,18 @@ class ChatMessageSyncer @Inject constructor(
     /**
      * Whether [message] renders as its own bubble in an open chat — mirrors ChatViewModel's two
      * combined chat-rendering filters: a hidden system message type (see
-     * [CHAT_HIDDEN_SYSTEM_MESSAGE_TYPES]), and, only when [syncedThreadId] is null (i.e. this sync
-     * is for the main channel, not a specific thread), a reply belonging to some other thread —
+     * [CHAT_HIDDEN_SYSTEM_MESSAGE_TYPES] and [SyncTarget.hidesDirectCallEvents]), and, only when the
+     * [target] thread is null (i.e. this sync is for the main channel, not a specific thread), a
+     * reply belonging to some other thread —
      * ChatViewModel.handleThreadMessages() hides those from the main channel view the same way it
      * hides the system message types above, so a page made up entirely of thread replies could
      * fool [pullUntilVisibleMessage] the same way reaction spam did. A message that starts a thread
      * (threadId == its own id) is not itself a reply and stays visible.
      */
-    private fun isChatVisibleMessage(message: ChatMessageDto, syncedThreadId: Long?): Boolean {
-        val hiddenSystemMessage = message.systemMessageType in CHAT_HIDDEN_SYSTEM_MESSAGE_TYPES
-        val replyToAnotherThread = syncedThreadId == null && message.hasThread && message.threadId != message.id
+    private fun isChatVisibleMessage(message: ChatMessageDto, target: SyncTarget): Boolean {
+        val hiddenSystemMessage = message.systemMessageType in CHAT_HIDDEN_SYSTEM_MESSAGE_TYPES ||
+            (target.hidesDirectCallEvents && DirectCallHistory.isHiddenCallEvent(message.systemMessageType))
+        val replyToAnotherThread = target.threadId == null && message.hasThread && message.threadId != message.id
         return !hiddenSystemMessage && !replyToAnotherThread
     }
 
@@ -847,7 +851,7 @@ class ChatMessageSyncer @Inject constructor(
                 emptyList()
             }
             val chatVisibleMessages = if (persistedMessages.isNotEmpty()) {
-                result.messages.filter { isChatVisibleMessage(it, target.threadId) }
+                result.messages.filter { isChatVisibleMessage(it, target) }
             } else {
                 emptyList()
             }
@@ -945,7 +949,16 @@ class ChatMessageSyncer @Inject constructor(
         handleSystemMessagesThatAffectDatabase(target, chatMessages, events)
 
         val chatMessageEntities = chatMessages.map {
-            it.asEntity(target.accountId)
+            val entity = it.asEntity(target.accountId)
+            if (DirectCallHistory.needsStoredRow(entity)) {
+                DirectCallHistory.merge(
+                    stored = chatDao.getChatMessageEntity(target.internalConversationId, entity.id),
+                    incoming = entity,
+                    now = DirectCallHistory.nowSeconds()
+                )
+            } else {
+                entity
+            }
         }
 
         try {
@@ -1023,7 +1036,8 @@ class ChatMessageSyncer @Inject constructor(
                 ChatMessage.SystemMessageType.CALL_ENDED,
                 ChatMessage.SystemMessageType.CALL_ENDED_EVERYONE,
                 ChatMessage.SystemMessageType.CALL_MISSED,
-                ChatMessage.SystemMessageType.CALL_TRIED -> {
+                ChatMessage.SystemMessageType.CALL_TRIED,
+                ChatMessage.SystemMessageType.CALL_RESULT -> {
                     val messageAgeMillis = System.currentTimeMillis() - messageJson.timestamp * MILLIS_PER_SECOND
                     if (messageAgeMillis <= ROOM_REFRESH_MAX_AGE_MILLIS) {
                         needsRoomRefresh = true
@@ -1045,10 +1059,14 @@ class ChatMessageSyncer @Inject constructor(
     ) {
         val parentMessageJson = messageJson.parentMessage ?: return
         parentMessageJson.message ?: return
-        val parentMessageEntity = parentMessageJson.asEntity(target.accountId)
+        val existingEntity = chatDao.getChatMessageEntity(target.internalConversationId, parentMessageJson.id)
+        val parentMessageEntity = DirectCallHistory.merge(
+            stored = existingEntity,
+            incoming = parentMessageJson.asEntity(target.accountId),
+            now = DirectCallHistory.nowSeconds()
+        )
 
         // Preserve parentMessageId if missing in server response but present in local DB
-        val existingEntity = chatDao.getChatMessageEntity(target.internalConversationId, parentMessageJson.id)
         if (existingEntity != null && parentMessageEntity.parentMessageId == null) {
             parentMessageEntity.parentMessageId = existingEntity.parentMessageId
         }

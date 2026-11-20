@@ -8,12 +8,14 @@
 package com.nextcloud.talk.chat.ui.model
 
 import android.provider.Settings
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Stable
 import com.nextcloud.talk.R
 import com.nextcloud.talk.application.NextcloudTalkApplication.Companion.sharedApplication
 import com.nextcloud.talk.chat.data.model.ChatMessage
 import com.nextcloud.talk.data.database.model.SendStatus
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.DirectCallHistory
 import com.nextcloud.talk.utils.ApiUtils
 import com.nextcloud.talk.utils.CapabilitiesUtil
 import com.nextcloud.talk.utils.DrawableUtils
@@ -106,6 +108,17 @@ sealed interface MessageTypeContent {
     data object Voice : MessageTypeContent
 
     data class AudioFile(val fileName: String) : MessageTypeContent
+
+    data class CallResult(
+        @StringRes val titleRes: Int,
+        val isOutgoing: Boolean,
+        val isMissed: Boolean,
+        val isVideo: Boolean,
+        val durationText: String?
+    ) : MessageTypeContent
+
+    // A call history system message shown with a localized text instead of the server text.
+    data class CallHistoryText(@StringRes val textRes: Int) : MessageTypeContent
 }
 
 enum class MessageStatusIcon {
@@ -117,12 +130,14 @@ enum class MessageStatusIcon {
 }
 
 // Domain model (ChatMessage) to UI model (ChatMessageUi)
+@Suppress("LongParameterList")
 fun ChatMessage.toUiModel(
     user: User,
     chatMessage: ChatMessage,
     lastCommonReadMessageId: Int,
     parentMessage: ChatMessage?,
-    isClassified: Boolean = false
+    isClassified: Boolean = false,
+    isDirectCallRoom: Boolean = false
 ): ChatMessageUi =
     ChatMessageUi(
         id = jsonMessageId,
@@ -146,7 +161,7 @@ fun ChatMessage.toUiModel(
         ),
         timestamp = timestamp,
         date = dateKey(),
-        content = getMessageTypeContent(user, chatMessage, isClassified),
+        content = getMessageTypeContent(user, chatMessage, isClassified, isDirectCallRoom),
         roomToken = token,
         activeUserId = user.userId,
         activeUserBaseUrl = user.baseUrl,
@@ -260,10 +275,20 @@ fun resolveStatusIcon(
         else -> MessageStatusIcon.SENT
     }
 
-fun getMessageTypeContent(user: User, message: ChatMessage, isClassified: Boolean = false): MessageTypeContent? =
+fun getMessageTypeContent(
+    user: User,
+    message: ChatMessage,
+    isClassified: Boolean = false,
+    isDirectCallRoom: Boolean = false
+): MessageTypeContent? =
 
     if (message.isSystemMessage) {
-        MessageTypeContent.SystemMessage
+        DirectCallHistory.systemMessageContent(
+            message = message,
+            viewerCloudId = DirectCallHistory.viewerCloudId(user),
+            isDirectRoom = isDirectCallRoom,
+            now = DirectCallHistory.nowSeconds()
+        ) ?: MessageTypeContent.SystemMessage
     } else if (message.isVoiceMessage) {
         MessageTypeContent.Voice
     } else if (message.hasFileAttachment && message.isTemporary) {

@@ -77,6 +77,7 @@ import com.nextcloud.talk.R
 import com.nextcloud.talk.chat.data.model.ChatMessage
 import com.nextcloud.talk.data.database.mappers.toDomainModel
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.DirectCallHistory
 import com.nextcloud.talk.models.json.chat.ChatUtils
 import com.nextcloud.talk.extensions.loadNoteToSelfAvatar
 import com.nextcloud.talk.extensions.loadSystemAvatar
@@ -672,7 +673,16 @@ private fun LastMessageContent(
     if (msgType == ChatMessage.MessageType.SYSTEM_MESSAGE ||
         model.type == ConversationEnums.ConversationType.ROOM_SYSTEM
     ) {
-        val parsedText = ChatUtils.getParsedMessage(chatMessage.message, chatMessage.messageParameters) ?: ""
+        val callHistoryTextRes = remember(chatMessage, currentUser) {
+            DirectCallHistory.historyTextRes(
+                message = chatMessage,
+                viewerCloudId = DirectCallHistory.viewerCloudId(currentUser),
+                now = DirectCallHistory.nowSeconds()
+            )
+        }
+        val parsedText = callHistoryTextRes?.let { stringResource(it) }
+            ?: ChatUtils.getParsedMessage(chatMessage.message, chatMessage.messageParameters)
+            ?: ""
         Text(
             text = buildLastMessageText(parsedText, parsedText, chatMessage.isThread, searchQuery, primaryColor),
             modifier = modifier,

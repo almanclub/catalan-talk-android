@@ -22,6 +22,7 @@ import com.nextcloud.talk.data.database.model.ChatMessageEntity
 import com.nextcloud.talk.data.database.model.SendStatus
 import com.nextcloud.talk.data.network.NetworkMonitor
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.DirectCallHistory
 import com.nextcloud.talk.extensions.toIntOrZero
 import com.nextcloud.talk.logger.Logger
 import com.nextcloud.talk.models.domain.ConversationModel
@@ -179,7 +180,9 @@ class OfflineFirstChatRepository @Inject constructor(
             roomToken = roomToken,
             threadId = threadId,
             credentials = credentials,
-            urlForChatting = urlForChatting
+            urlForChatting = urlForChatting,
+            hidesDirectCallEvents = ::conversationModel.isInitialized &&
+                DirectCallHistory.hidesCallEvents(conversationModel, currentUser)
         )
 
     private val syncEvents = object : ChatMessageSyncer.Events {

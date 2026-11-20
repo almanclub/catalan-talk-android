@@ -14,6 +14,7 @@ import com.nextcloud.talk.R
 import com.nextcloud.talk.application.NextcloudTalkApplication.Companion.sharedApplication
 import com.nextcloud.talk.data.database.model.SendStatus
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.CallAttempt
 import com.nextcloud.talk.models.json.chat.ChatUtils.Companion.getParsedMessage
 import com.nextcloud.talk.utils.CapabilitiesUtil
 import java.time.Instant
@@ -125,7 +126,10 @@ data class ChatMessage(
 
     var avatarUrl: String? = null,
 
-    var isUnread: Boolean = false
+    var isUnread: Boolean = false,
+
+    // raw JSON of the catalan-call-attempts-v1 snapshot attached to call_result messages
+    var callAttempt: String? = null
 
 ) {
 
@@ -133,6 +137,7 @@ data class ChatMessage(
     val geoLocationParameters by lazy { GeoLocationParameters(messageParameters) }
     val pollParameters by lazy { PollParameters(messageParameters) }
     val deckCardParameters by lazy { DeckCardParameters(messageParameters) }
+    val callAttemptSnapshot by lazy { CallAttempt.parse(callAttempt) }
 
     val hasFileAttachment get() = messageParameters?.containsKey("file") == true
     val hasGeoLocation get() = messageParameters?.get("object")?.get("type") == "geo-location"
@@ -259,6 +264,7 @@ data class ChatMessage(
         CALL_ENDED_EVERYONE,
         CALL_MISSED,
         CALL_TRIED,
+        CALL_RESULT,
         READ_ONLY_OFF,
         READ_ONLY,
         LISTABLE_NONE,

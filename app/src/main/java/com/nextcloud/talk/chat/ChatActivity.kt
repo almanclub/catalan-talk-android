@@ -140,6 +140,7 @@ import com.nextcloud.talk.data.database.model.SendStatus
 import com.nextcloud.talk.data.network.NetworkMonitor
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.databinding.ActivityChatBinding
+import com.nextcloud.talk.directcall.DirectCallHistory
 import com.nextcloud.talk.events.UserMentionClickEvent
 import com.nextcloud.talk.events.WebSocketCommunicationEvent
 import com.nextcloud.talk.jobs.DeleteConversationWorker
@@ -900,7 +901,8 @@ class ChatActivity :
                             markedAsUnreadByUser = uiState.markedAsUnreadByUser,
                             hasChatPermission = participantPermissions?.hasChatPermission() == true,
                             downloadingFileState = downloadingFileState.value,
-                            stickyHeaderTopOffset = overflowHeightDp
+                            stickyHeaderTopOffset = overflowHeightDp,
+                            canCallBack = canCallBackFromHistory(uiState.conversation)
                         ),
                         callbacks = ChatViewCallbacks(
                             onLoadMore = { messageId, direction -> loadMoreMessages(messageId, direction) },
@@ -923,7 +925,12 @@ class ChatActivity :
                                     chatViewModel.toggleSystemMessageCollapse(messageId)
                                 },
                                 onAvatarClick = { messageId -> chatViewModel.showProfileSheet(messageId.toLong()) },
-                                onCancelUpload = { referenceId -> chatViewModel.cancelUpload(referenceId) }
+                                onCancelUpload = { referenceId -> chatViewModel.cancelUpload(referenceId) },
+                                onCallBackClick = { isVideo ->
+                                    if (canCallBackFromHistory(currentConversation)) {
+                                        startACall(isVoiceOnlyCall = !isVideo, callWithoutNotification = false)
+                                    }
+                                }
                             )
                         ),
                         listState = listState
@@ -2136,6 +2143,11 @@ class ChatActivity :
             !isReadOnlyConversation() &&
             !shouldShowLobby() &&
             !ConversationUtils.isChannel(conversation, spreedCapabilities)
+
+    private fun canCallBackFromHistory(conversation: ConversationModel?): Boolean =
+        DirectCallHistory.isDirectRoom(conversation) &&
+            chatToolbarState.showVoiceCall &&
+            conversation?.hasCall != true
 
     private fun isSearchAvailable(capabilitiesReady: Boolean, conversation: ConversationModel?): Boolean =
         capabilitiesReady &&

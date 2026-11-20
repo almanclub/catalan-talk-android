@@ -76,5 +76,6 @@ data class ChatMessageEntity(
     @ColumnInfo(name = "pinnedActorDisplayName") var pinnedActorDisplayName: String? = null,
     @ColumnInfo(name = "pinnedAt") var pinnedAt: Long? = null,
     @ColumnInfo(name = "pinnedUntil") var pinnedUntil: Long? = null,
-    @ColumnInfo(name = "sendAt") var sendAt: Int? = 0
+    @ColumnInfo(name = "sendAt") var sendAt: Int? = 0,
+    @ColumnInfo(name = "callAttempt") var callAttempt: String? = null
 )

@@ -13,7 +13,9 @@ import com.nextcloud.talk.conversationlist.data.network.ConversationListUpdater
 import com.nextcloud.talk.data.database.dao.ChatBlocksDao
 import com.nextcloud.talk.data.database.dao.ChatMessagesDao
 import com.nextcloud.talk.data.database.dao.ConversationsDao
+import com.nextcloud.talk.data.database.mappers.asEntity
 import com.nextcloud.talk.data.database.model.ChatBlockEntity
+import com.nextcloud.talk.data.database.model.ChatMessageEntity
 import com.nextcloud.talk.data.network.NetworkMonitor
 import com.nextcloud.talk.data.user.model.User
 import com.nextcloud.talk.models.json.capabilities.CapabilitiesDto
@@ -726,6 +728,47 @@ class ChatMessageSyncerTest {
         }
 
     @Test
+    fun `pullUntilVisibleMessage keeps paging through call events hidden in a direct chat`() =
+        runTest {
+            whenever(chatBlocksDao.getChatBlocksContainingMessageId(eq(INTERNAL_CONVERSATION_ID), eq(null), any()))
+                .thenReturn(flowOf(emptyList()))
+            var pullCount = 0
+            wheneverBlocking { network.pullChatMessages(any(), any(), any()) }.doSuspendableAnswer {
+                pullCount++
+                if (pullCount == 1) {
+                    Response.success(overall(callJoinedMessage(49), callJoinedMessage(48)))
+                } else {
+                    Response.success(overall(message(47)))
+                }
+            }
+
+            val fieldMap = syncer.buildFieldMap(
+                lookIntoFuture = false,
+                timeout = 0,
+                includeLastKnown = true,
+                lastKnown = 50,
+                limit = 2
+            )
+            val outcome = syncer.pullUntilVisibleMessage(target(hidesDirectCallEvents = true), fieldMap)
+
+            assertEquals(47L, outcome.newestPersistedMessage?.id)
+            verifyBlocking(network, times(2)) { pullChatMessages(any(), any(), any()) }
+        }
+
+    @Test
+    fun `persisting a stale call result keeps the newer stored revision`() =
+        runTest {
+            val stored = callResultMessage(version = 5).asEntity(ACCOUNT_ID)
+            wheneverBlocking { chatDao.getChatMessageEntity(INTERNAL_CONVERSATION_ID, 46L) }.thenReturn(stored)
+
+            syncer.persistChatMessagesAndHandleSystemMessages(target(), listOf(callResultMessage(version = 4)))
+
+            val captor = argumentCaptor<List<ChatMessageEntity>>()
+            verifyBlocking(chatDao) { upsertChatMessagesAndDeleteTemp(eq(INTERNAL_CONVERSATION_ID), captor.capture()) }
+            assertEquals(stored.callAttempt, captor.firstValue.single().callAttempt)
+        }
+
+    @Test
     fun `pullUntilVisibleMessage accepts thread replies right away when syncing that thread`() =
         runTest {
             whenever(chatBlocksDao.getChatBlocksContainingMessageId(eq(INTERNAL_CONVERSATION_ID), eq(10L), any()))
@@ -898,13 +941,18 @@ class ChatMessageSyncerTest {
         )
     }
 
-    private fun target(user: User = user(), threadId: Long? = null): ChatMessageSyncer.SyncTarget =
+    private fun target(
+        user: User = user(),
+        threadId: Long? = null,
+        hidesDirectCallEvents: Boolean = false
+    ): ChatMessageSyncer.SyncTarget =
         ChatMessageSyncer.SyncTarget(
             user = user,
             roomToken = ROOM_TOKEN,
             threadId = threadId,
             credentials = CREDENTIALS,
-            urlForChatting = CHAT_URL
+            urlForChatting = CHAT_URL,
+            hidesDirectCallEvents = hidesDirectCallEvents
         )
 
     private fun block(oldest: Long, newest: Long): ChatBlockEntity =
@@ -936,6 +984,25 @@ class ChatMessageSyncerTest {
 
     private fun threadCreatedMessage(id: Long): ChatMessageDto =
         message(id).apply { systemMessageType = ChatMessage.SystemMessageType.THREAD_CREATED }
+
+    private fun callJoinedMessage(id: Long): ChatMessageDto =
+        message(id).apply {
+            messageType = "system"
+            systemMessageType = ChatMessage.SystemMessageType.CALL_JOINED
+        }
+
+    private fun callResultMessage(version: Int): ChatMessageDto =
+        message(46).apply {
+            messageType = "system"
+            systemMessageType = ChatMessage.SystemMessageType.CALL_RESULT
+            callAttempt = """
+                {"callId":"747A2949-9990-4C8D-8574-21D4B0546843","sequence":1,"origin":"https://server.example.com",
+                 "version":$version,"state":"ended","outcome":"cancelled","mediaType":"audio",
+                 "caller":{"cloudId":"me@server.example.com"},"callee":{"cloudId":"other@server.example.com"},
+                 "ringingStartedAt":"2026-11-09T08:00:00Z","ringingDeadline":"2026-11-09T08:00:30Z",
+                 "serverTime":"2026-11-09T08:00:10Z"}
+            """.trimIndent()
+        }
 
     private fun threadReplyMessage(id: Long, threadId: Long): ChatMessageDto =
         message(id).apply {

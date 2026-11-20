@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.nextcloud.talk.R
 import com.nextcloud.talk.chat.audio.ChatAudioKey
@@ -64,7 +65,8 @@ data class ChatMessageContext(
     val isOneToOneConversation: Boolean = false,
     val conversationThreadId: Long? = null,
     val hasChatPermission: Boolean = true,
-    val downloadingFileState: List<String> = listOf()
+    val downloadingFileState: List<String> = listOf(),
+    val canCallBack: Boolean = false
 )
 
 @Suppress("Detekt.LongParameterList")
@@ -82,7 +84,8 @@ data class ChatMessageCallbacks(
     val onQuotedMessageClick: (Int) -> Unit = {},
     val onSystemMessageExpandClick: (Int) -> Unit = {},
     val onAvatarClick: (Int) -> Unit = {},
-    val onCancelUpload: (String) -> Unit = {}
+    val onCancelUpload: (String) -> Unit = {},
+    val onCallBackClick: (isVideo: Boolean) -> Unit = {}
 )
 
 @Suppress("Detekt.LongParameterList", "Detekt.LongMethod", "Detekt.CyclomaticComplexMethod")
@@ -154,6 +157,19 @@ fun ChatMessageView(
 
                         MessageTypeContent.SystemMessage -> {
                             SystemMessage(message)
+                        }
+
+                        is MessageTypeContent.CallHistoryText -> {
+                            SystemMessage(message.copy(plainMessage = stringResource(content.textRes)))
+                        }
+
+                        is MessageTypeContent.CallResult -> {
+                            CallResultMessage(
+                                typeContent = content,
+                                message = message,
+                                canCallBack = context.canCallBack,
+                                onCallBackClick = callbacks.onCallBackClick
+                            )
                         }
 
                         is MessageTypeContent.Media -> {

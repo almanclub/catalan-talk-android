@@ -49,7 +49,8 @@ fun ChatMessageDto.asEntity(accountId: Long) =
         pinnedActorDisplayName = metaData?.pinnedActorDisplayName,
         pinnedAt = metaData?.pinnedAt,
         pinnedUntil = metaData?.pinnedUntil,
-        sendAt = sendAt
+        sendAt = sendAt,
+        callAttempt = callAttempt
     )
 
 fun ChatMessageEntity.toDomainModel() =
@@ -89,7 +90,8 @@ fun ChatMessageEntity.toDomainModel() =
         pinnedActorDisplayName = pinnedActorDisplayName,
         pinnedAt = pinnedAt,
         pinnedUntil = pinnedUntil,
-        sendAt = sendAt
+        sendAt = sendAt,
+        callAttempt = callAttempt
     )
 
 fun ChatMessageDto.toDomainModel() =
@@ -126,5 +128,6 @@ fun ChatMessageDto.toDomainModel() =
         pinnedActorDisplayName = metaData?.pinnedActorDisplayName,
         pinnedAt = metaData?.pinnedAt,
         pinnedUntil = metaData?.pinnedUntil,
-        sendAt = sendAt
+        sendAt = sendAt,
+        callAttempt = callAttempt
     )

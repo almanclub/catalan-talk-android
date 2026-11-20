@@ -48,6 +48,7 @@ import com.nextcloud.talk.dagger.modules.ApplicationScope
 import com.nextcloud.talk.data.database.mappers.toDomainModel
 import com.nextcloud.talk.data.database.model.ChatMessageEntity
 import com.nextcloud.talk.data.user.model.User
+import com.nextcloud.talk.directcall.DirectCallHistory
 import com.nextcloud.talk.jobs.ReadMarkerSyncWorker
 import com.nextcloud.talk.jobs.SendMessageWorker
 import com.nextcloud.talk.jobs.ShareOperationWorker
@@ -790,8 +791,12 @@ class ChatViewModel @AssistedInject constructor(
                         messages.withoutBlockedAuthors(blockedActors)
                     }
                     .combine(isChannelFlow) { messages, isChannel ->
-                        handleSystemMessages(messages, isChannel)
-                            .let(::handleThreadMessages)
+                        DirectCallHistory.visibleMessages(
+                            messages = handleSystemMessages(messages, isChannel),
+                            isDirectRoom = DirectCallHistory.isDirectRoom(conversation),
+                            hidesCallEvents = DirectCallHistory.hidesCallEvents(conversation, user),
+                            now = DirectCallHistory.nowSeconds()
+                        ).let(::handleThreadMessages)
                     }
             }
             .distinctUntilChanged()
@@ -1270,6 +1275,7 @@ class ChatViewModel @AssistedInject constructor(
                         .distinct()
 
                 val isClassified = conversation != null && ConversationUtils.isClassified(conversation, capabilities)
+                val isDirectCallRoom = DirectCallHistory.isDirectRoom(conversation)
                 val user = currentUserFlow.value
                 applyMessageGrouping(messages)
                 applySystemMessageGrouping(messages)
@@ -1282,7 +1288,8 @@ class ChatViewModel @AssistedInject constructor(
                         chatMessage = message,
                         lastCommonReadMessageId = lastCommonRead,
                         parentMessage = parent,
-                        isClassified = isClassified
+                        isClassified = isClassified,
+                        isDirectCallRoom = isDirectCallRoom
                     )
                 }
 
@@ -1397,7 +1404,7 @@ class ChatViewModel @AssistedInject constructor(
         var i = 0
         while (i < messages.size) {
             val msg = messages[i]
-            if (!msg.isSystemMessage) {
+            if (!msg.isCollapsibleSystemMessage) {
                 i++
                 continue
             }
@@ -2938,3 +2945,7 @@ class ChatViewModel @AssistedInject constructor(
         fun build(user: User, roomToken: String, conversationThreadId: Long?): ChatViewModel
     }
 }
+
+// Every call result is its own card, so runs of them are never collapsed.
+private val ChatMessage.isCollapsibleSystemMessage: Boolean
+    get() = isSystemMessage && systemMessageType != ChatMessage.SystemMessageType.CALL_RESULT

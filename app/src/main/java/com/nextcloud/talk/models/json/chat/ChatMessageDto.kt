@@ -12,6 +12,7 @@ import com.bluelinelabs.logansquare.annotation.JsonField
 import com.bluelinelabs.logansquare.annotation.JsonObject
 import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType
 import com.nextcloud.talk.models.json.converters.EnumSystemMessageTypeConverter
+import com.nextcloud.talk.models.json.converters.RawJsonObjectConverter
 import kotlinx.parcelize.Parcelize
 
 @Parcelize
@@ -54,5 +55,7 @@ data class ChatMessageDto(
     @JsonField(name = ["threadTitle"]) var threadTitle: String? = null,
     @JsonField(name = ["threadReplies"]) var threadReplies: Int? = 0,
     @JsonField(name = ["metaData"]) var metaData: ChatMessageMetaDataDto? = null,
-    @JsonField(name = ["sendAt"]) var sendAt: Int? = null
+    @JsonField(name = ["sendAt"]) var sendAt: Int? = null,
+    @JsonField(name = ["callAttempt"], typeConverter = RawJsonObjectConverter::class)
+    var callAttempt: String? = null
 ) : Parcelable

@@ -21,6 +21,7 @@ import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType.CALL_END
 import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType.CALL_JOINED
 import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType.CALL_LEFT
 import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType.CALL_MISSED
+import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType.CALL_RESULT
 import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType.CALL_STARTED
 import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType.CALL_TRIED
 import com.nextcloud.talk.chat.data.model.ChatMessage.SystemMessageType.CIRCLE_ADDED
@@ -100,6 +101,7 @@ class EnumSystemMessageTypeConverter : StringBasedTypeConverter<ChatMessage.Syst
             "call_ended_everyone" -> CALL_ENDED_EVERYONE
             "call_missed" -> CALL_MISSED
             "call_tried" -> CALL_TRIED
+            "call_result" -> CALL_RESULT
             "read_only_off" -> READ_ONLY_OFF
             "read_only" -> READ_ONLY
             "listable_none" -> LISTABLE_NONE
@@ -181,6 +183,7 @@ class EnumSystemMessageTypeConverter : StringBasedTypeConverter<ChatMessage.Syst
             CALL_ENDED_EVERYONE -> "call_ended_everyone"
             CALL_MISSED -> "call_missed"
             CALL_TRIED -> "call_tried"
+            CALL_RESULT -> "call_result"
             READ_ONLY_OFF -> "read_only_off"
             READ_ONLY -> "read_only"
             LISTABLE_NONE -> "listable_none"

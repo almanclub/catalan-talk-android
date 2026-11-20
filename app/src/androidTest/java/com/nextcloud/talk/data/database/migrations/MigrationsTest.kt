@@ -205,4 +205,17 @@ class MigrationsTest {
             close()
         }
     }
+
+    @Test
+    fun migrate27To28() {
+        helper.createDatabase(TEST_DB, 27).apply {
+            close()
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 28, true).apply {
+            query("SELECT callAttempt FROM ChatMessages LIMIT 0").use { cursor ->
+                assertEquals(1, cursor.columnCount)
+            }
+            close()
+        }
+    }
 }

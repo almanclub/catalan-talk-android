@@ -107,7 +107,8 @@ data class ChatViewState(
     val highlightedSearchTerm: String? = null,
     val markedAsUnreadByUser: Boolean = false,
     val downloadingFileState: List<String> = listOf(),
-    val stickyHeaderTopOffset: Dp = 0.dp
+    val stickyHeaderTopOffset: Dp = 0.dp,
+    val canCallBack: Boolean = false
 )
 
 data class ChatViewCallbacks(
@@ -417,7 +418,8 @@ fun ChatView(
                                     isOneToOneConversation = state.isOneToOneConversation,
                                     conversationThreadId = state.conversationThreadId,
                                     hasChatPermission = state.hasChatPermission,
-                                    downloadingFileState = state.downloadingFileState
+                                    downloadingFileState = state.downloadingFileState,
+                                    canCallBack = state.canCallBack
                                 ),
                                 callbacks = ChatMessageCallbacks(
                                     onLongClick = callbacks.messageCallbacks.onLongClick,
@@ -433,7 +435,8 @@ fun ChatView(
                                     onQuotedMessageClick = handleQuotedMessageClick,
                                     onSystemMessageExpandClick = callbacks.messageCallbacks.onSystemMessageExpandClick,
                                     onAvatarClick = callbacks.messageCallbacks.onAvatarClick,
-                                    onCancelUpload = callbacks.messageCallbacks.onCancelUpload
+                                    onCancelUpload = callbacks.messageCallbacks.onCancelUpload,
+                                    onCallBackClick = callbacks.messageCallbacks.onCallBackClick
                                 )
                             )
                         }
