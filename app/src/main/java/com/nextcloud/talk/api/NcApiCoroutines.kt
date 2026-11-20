@@ -50,6 +50,7 @@ import com.nextcloud.talk.models.json.userAbsence.UserAbsenceOverall
 import com.nextcloud.talk.models.json.userprofile.UserProfileOverall
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -684,4 +685,22 @@ interface NcApiCoroutines {
         @Field("metaData") metaData: String,
         @Field("referenceId") referenceId: String
     ): GenericOverall
+
+    @GET
+    suspend fun getCallAttempt(@Header("Authorization") authorization: String, @Url url: String): Response<ResponseBody>
+
+    @POST
+    suspend fun postCallAttempt(
+        @Header("Authorization") authorization: String,
+        @Url url: String,
+        @Body body: RequestBody
+    ): Response<ResponseBody>
+
+    @FormUrlEncoded
+    @POST
+    suspend fun joinRoomWithNewSession(
+        @Header("Authorization") authorization: String,
+        @Url url: String,
+        @Field("force") force: Boolean
+    ): RoomOverall
 }

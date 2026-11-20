@@ -247,6 +247,9 @@ object ApiUtils {
     fun getUrlForCall(version: Int, baseUrl: String?, token: String): String =
         getUrlForApi(version, baseUrl) + "/call/" + token
 
+    fun getUrlForCallAttempt(baseUrl: String, token: String): String =
+        "$baseUrl$OCS_API_VERSION$SPREED_API_VERSION/call-attempt/$token"
+
     fun getUrlForChat(version: Int, baseUrl: String?, token: String): String =
         getUrlForApi(version, baseUrl) + "/chat/" + token
 

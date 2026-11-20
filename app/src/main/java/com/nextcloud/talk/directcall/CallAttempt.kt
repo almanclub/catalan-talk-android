@@ -106,6 +106,8 @@ data class CallAttempt(
         private val TIMESTAMP_REGEX =
             Regex("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$")
 
+        fun isCallId(value: String?): Boolean = value != null && UUID_REGEX.matches(value)
+
         /**
          * Parses the raw callAttempt JSON of a chat message or API response. Returns null, and logs, when the value is
          * missing or invalid; an invalid snapshot must never be rendered or acted upon.
@@ -158,21 +160,13 @@ data class CallAttempt(
 
         private fun validate(attempt: CallAttempt) {
             when {
-                !UUID_REGEX.matches(attempt.callId) -> invalid("callId is not a UUID")
+                !isCallId(attempt.callId) -> invalid("callId is not a UUID")
                 !isHttpsOrigin(attempt.origin) -> invalid("origin is not an https URL")
                 attempt.version <= 0 || attempt.sequence <= 0 -> invalid("version and sequence must be positive")
                 (attempt.durationSeconds ?: 0) < 0 -> invalid("durationSeconds must not be negative")
                 (attempt.state == State.ENDED) != (attempt.outcome != null) -> invalid("outcome does not match state")
             }
         }
-
-        private fun isHttpsOrigin(origin: String): Boolean =
-            try {
-                val uri = URI(origin)
-                uri.scheme == "https" && !uri.host.isNullOrEmpty()
-            } catch (_: URISyntaxException) {
-                false
-            }
 
         private fun JsonObject.present(key: String): JsonElement? = get(key)?.takeUnless { it is JsonNull }
 
@@ -220,3 +214,11 @@ data class CallAttempt(
 }
 
 private fun invalid(reason: String): Nothing = throw CallAttempt.InvalidCallAttemptException(reason)
+
+private fun isHttpsOrigin(origin: String): Boolean =
+    try {
+        val uri = URI(origin)
+        uri.scheme == "https" && !uri.host.isNullOrEmpty()
+    } catch (_: URISyntaxException) {
+        false
+    }
