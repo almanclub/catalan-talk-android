@@ -12,11 +12,17 @@ package com.nextcloud.talk.account
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
+import android.view.View
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
-import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -49,9 +55,11 @@ class BrowserLoginActivity : BaseActivity() {
     private var reauthorizeAccount = false
     private val onBackPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-            val intent = Intent(context, MainActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            startActivity(intent)
+            if (binding.loginWebView.visibility == View.VISIBLE && binding.loginWebView.canGoBack()) {
+                binding.loginWebView.goBack()
+            } else {
+                cancelLogin()
+            }
         }
     }
 
@@ -66,6 +74,10 @@ class BrowserLoginActivity : BaseActivity() {
         initSystemBars()
         initViews()
         onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
+        val initialState = viewModel.initialLoginRequestState.value
+        if (initialState is BrowserLoginActivityViewModel.InitialLoginViewState.InitialLoginRequestSuccess) {
+            savedInstanceState?.getBundle(WEB_VIEW_STATE)?.let { binding.loginWebView.restoreState(it) }
+        }
         handleIntent()
         observe()
     }
@@ -84,12 +96,10 @@ class BrowserLoginActivity : BaseActivity() {
                             Snackbar.make(binding.root, R.string.nc_common_error_sorry, Snackbar.LENGTH_SHORT).show()
                         }
                         is BrowserLoginActivityViewModel.InitialLoginViewState.InitialLoginRequestSuccess -> {
-                            if (viewModel.waitingForBrowserState.value) {
-                                viewModel.setWaitingForBrowser(false)
-                                viewModel.handleWebBrowserLogin()
-                            } else {
-                                viewModel.setWaitingForBrowser(true)
-                                launchDefaultWebBrowser(state.loginUrl)
+                            if (viewModel.postLoginState.value ==
+                                BrowserLoginActivityViewModel.PostLoginViewState.None
+                            ) {
+                                showLoginPage(state.loginUrl)
                             }
                         }
                         BrowserLoginActivityViewModel.InitialLoginViewState.None -> {}
@@ -164,19 +174,50 @@ class BrowserLoginActivity : BaseActivity() {
         }
     }
 
+    @SuppressLint("SetJavaScriptEnabled")
     private fun initViews() {
         viewThemeUtils.material.colorMaterialButtonFilledOnPrimary(binding.cancelLoginBtn)
         viewThemeUtils.material.colorProgressBar(binding.progressBar)
 
-        binding.cancelLoginBtn.setOnClickListener {
-            viewModel.cancelLogin()
-            onBackPressedDispatcher.onBackPressed()
+        binding.loginWebView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = false
+            allowContentAccess = false
+        }
+        binding.loginWebView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                val uri = Uri.parse(url)
+                val port = if (uri.port == -1) "" else ":${uri.port}"
+                binding.loginOrigin.text = "${uri.scheme}://${uri.host}$port"
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                super.onReceivedError(view, request, error)
+                if (request.isForMainFrame) {
+                    logger.e(TAG, "Login page failed to load: ${error.errorCode}")
+                    Snackbar.make(binding.root, R.string.nc_common_error_sorry, Snackbar.LENGTH_LONG).show()
+                }
+            }
+        }
+        binding.cancelLoginBtn.setOnClickListener { cancelLogin() }
+    }
+
+    private fun showLoginPage(url: String) {
+        binding.progressBar.visibility = View.GONE
+        binding.cancelDesc.visibility = View.GONE
+        binding.loginOrigin.visibility = View.VISIBLE
+        binding.loginWebView.visibility = View.VISIBLE
+        if (binding.loginWebView.url == null) {
+            binding.loginWebView.loadUrl(url)
         }
     }
 
-    private fun launchDefaultWebBrowser(url: String) {
-        val intent = Intent(Intent.ACTION_VIEW, url.toUri())
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+    private fun cancelLogin() {
+        viewModel.cancelLogin()
+        val intent = Intent(context, MainActivity::class.java)
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         startActivity(intent)
     }
 
@@ -192,7 +233,18 @@ class BrowserLoginActivity : BaseActivity() {
         startActivity(intent)
     }
 
-    public override fun onDestroy() {
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (binding.loginWebView.url != null) {
+            val webViewState = Bundle()
+            binding.loginWebView.saveState(webViewState)
+            outState.putBundle(WEB_VIEW_STATE, webViewState)
+        }
+    }
+
+    override fun onDestroy() {
+        binding.root.removeView(binding.loginWebView)
+        binding.loginWebView.destroy()
         super.onDestroy()
     }
 
@@ -201,5 +253,6 @@ class BrowserLoginActivity : BaseActivity() {
 
     companion object {
         private val TAG = BrowserLoginActivity::class.java.simpleName
+        private const val WEB_VIEW_STATE = "loginWebViewState"
     }
 }

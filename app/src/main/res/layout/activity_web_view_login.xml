@@ -27,6 +27,7 @@
         android:indeterminateTintMode="src_in" />
 
     <LinearLayout
+        android:id="@+id/login_controls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="@dimen/standard_double_margin"
@@ -54,5 +55,24 @@
             android:text="@string/cancel_login"
             />
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/login_origin"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?android:attr/colorBackground"
+        android:ellipsize="middle"
+        android:maxLines="1"
+        android:padding="@dimen/activity_horizontal_margin"
+        android:textColor="?android:attr/textColorPrimary"
+        android:visibility="gone" />
+
+    <WebView
+        android:id="@+id/login_web_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/login_origin"
+        android:layout_above="@id/login_controls"
+        android:visibility="gone" />
 
 </RelativeLayout>

@@ -29,7 +29,8 @@ class LoginRepository(val network: NetworkLoginDataSource, val local: LocalLogin
 
     companion object {
         val TAG: String = LoginRepository::class.java.simpleName
-        private const val INTERVAL = 250L
+        private const val INTERVAL = 1000L
+        private const val MAX_CONSECUTIVE_NETWORK_FAILURES = 10
         private const val HTTP_OK = 200
 
         /** The status of a [LoginCompletion] for a login the server refused because of too many failed logins. */
@@ -61,17 +62,25 @@ class LoginRepository(val network: NetworkLoginDataSource, val local: LocalLogin
 
     private var shouldReauthorizeUser = false
     private var accountToReauthorize: Long? = null
+
+    @Volatile
     private var shouldLoop = true
 
     suspend fun pollLogin(response: LoginResponse): LoginCompletion? =
         withContext(Dispatchers.IO) {
+            var consecutiveNetworkFailures = 0
             while (shouldLoop) {
                 val loginData = network.performLoginFlowV2(response)
                 if (loginData == null) {
-                    break
+                    consecutiveNetworkFailures++
+                    if (consecutiveNetworkFailures >= MAX_CONSECUTIVE_NETWORK_FAILURES) {
+                        Log.e(TAG, "Login polling stopped after repeated network errors")
+                        return@withContext null
+                    }
+                } else {
+                    consecutiveNetworkFailures = 0
                 }
-
-                if (loginData.status == HTTP_OK) {
+                if (loginData?.status == HTTP_OK) {
                     return@withContext loginData
                 }
 

@@ -86,18 +86,31 @@ class LoginRepositoryTest {
         }
 
     @Test
-    fun `pollLogin returns null when network returns null`() =
+    fun `pollLogin keeps polling after a network error then returns successful result`() =
         runTest {
             // Arrange
             val mockResponse = LoginResponse("token123", "https://server.com/poll", "https://server.com/login")
+            val successfulLoginData = LoginCompletion(200, "https://server.com", "testuser", "apppass123")
             whenever(networkLoginDataSource.performLoginFlowV2(mockResponse))
                 .thenReturn(null)
+                .thenReturn(successfulLoginData)
 
             // Act
             val result = repo.pollLogin(mockResponse)
 
             // Assert
-            assertNull(result)
+            assertEquals(successfulLoginData, result)
+            verify(networkLoginDataSource, times(2)).performLoginFlowV2(mockResponse)
+        }
+
+    @Test
+    fun `pollLogin reports failure after persistent network errors`() =
+        runTest {
+            val response = LoginResponse("token123", "https://server.com/poll", "https://server.com/login")
+            whenever(networkLoginDataSource.performLoginFlowV2(response)).thenReturn(null)
+
+            assertNull(repo.pollLogin(response))
+            verify(networkLoginDataSource, times(10)).performLoginFlowV2(response)
         }
 
     @Test

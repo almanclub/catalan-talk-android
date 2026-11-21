@@ -12,10 +12,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextcloud.talk.account.data.LoginRepository
 import com.nextcloud.talk.account.data.model.LoginCompletion
-import com.nextcloud.talk.account.data.model.LoginResponse
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -47,15 +45,6 @@ class BrowserLoginActivityViewModel @Inject constructor(val repository: LoginRep
     private val _postLoginState = MutableStateFlow<PostLoginViewState>(PostLoginViewState.None)
     val postLoginState: StateFlow<PostLoginViewState> = _postLoginState
 
-    private val _waitingForBrowserState = MutableStateFlow(false)
-    val waitingForBrowserState = _waitingForBrowserState.asStateFlow()
-
-    fun setWaitingForBrowser(value: Boolean) {
-        _waitingForBrowserState.value = value
-    }
-
-    private var savedResponse: LoginResponse? = null
-
     // The view model survives a recreation of the activity, which starts the login again. A started login is
     // continued instead of starting a second one, whose session the browser would not authorize. After process
     // death the view model is new, so the login is started again.
@@ -71,7 +60,6 @@ class BrowserLoginActivityViewModel @Inject constructor(val repository: LoginRep
         if (!startLoginOnce()) return
         viewModelScope.launch {
             val response = repository.startLoginFlow(baseUrl, reAuth, accountToReauthorize)
-            savedResponse = response
 
             if (response == null) {
                 _initialLoginRequestState.value = InitialLoginViewState.InitialLoginRequestError
@@ -80,14 +68,7 @@ class BrowserLoginActivityViewModel @Inject constructor(val repository: LoginRep
 
             _initialLoginRequestState.value =
                 InitialLoginViewState.InitialLoginRequestSuccess(response.loginUrl)
-        }
-    }
-
-    fun handleWebBrowserLogin() {
-        savedResponse?.let { response ->
-            viewModelScope.launch {
-                _postLoginState.value = postLoginStateFor(repository.pollLogin(response))
-            }
+            _postLoginState.value = postLoginStateFor(repository.pollLogin(response))
         }
     }
 
