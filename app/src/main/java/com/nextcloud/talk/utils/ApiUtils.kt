@@ -35,9 +35,12 @@ object ApiUtils {
     private const val SPREED_API_VERSION = "/apps/spreed/api/v1"
     private const val SPREED_API_BASE = "$OCS_API_VERSION/apps/spreed/api/v"
 
+    // The server enforces a minimum client version from the Nextcloud Talk user agent and answers older ones with
+    // HTTP 426, so it carries the Talk version this code base is based on, independent of the app's own version.
+    internal const val SERVER_CLIENT_VERSION = "26.0.0"
+
     @JvmStatic
-    val userAgent = "Mozilla/5.0 (Android) Nextcloud-Talk v"
-        get() = field + BuildConfig.VERSION_NAME
+    val userAgent = "Mozilla/5.0 (Android) Nextcloud-Talk v$SERVER_CLIENT_VERSION"
 
     private const val DEFAULT_LOGIN_PRODUCT_NAME = "Nextcloud Talk"
 
