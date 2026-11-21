@@ -413,7 +413,7 @@ private fun GroupAvatarImage(params: AvatarImageParams, modifier: Modifier = Mod
 private fun SystemAvatarImage(isInPreview: Boolean, modifier: Modifier = Modifier) {
     if (isInPreview) {
         Icon(
-            painter = painterResource(R.drawable.ic_launcher_foreground),
+            painter = painterResource(R.drawable.ic_launcher_fg_img),
             contentDescription = stringResource(R.string.avatar),
             modifier = modifier
         )

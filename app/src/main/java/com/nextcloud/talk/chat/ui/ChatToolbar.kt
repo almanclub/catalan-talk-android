@@ -402,7 +402,7 @@ private fun ConversationAvatar(
                 if (LocalInspectionMode.current) {
                     Icon(
                         painter = painterResource(
-                            if (isSystem) R.drawable.ic_launcher_foreground else R.drawable.ic_note_to_self
+                            if (isSystem) R.drawable.ic_launcher_fg_img else R.drawable.ic_note_to_self
                         ),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize()

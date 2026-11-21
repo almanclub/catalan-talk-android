@@ -64,7 +64,7 @@ fun EmptyConversationsView(showLogo: Boolean, onCreateNewConversation: () -> Uni
     ) {
         if (showLogo) {
             Image(
-                painter = painterResource(R.drawable.ic_logo),
+                painter = painterResource(R.drawable.ic_launcher_fg_img),
                 contentDescription = stringResource(R.string.nc_app_product_name),
                 modifier = Modifier
                     .fillMaxWidth()
