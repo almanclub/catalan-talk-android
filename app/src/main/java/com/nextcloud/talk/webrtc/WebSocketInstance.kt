@@ -82,9 +82,14 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
         private set
     private var hasMCU = false
     private var supportsChatRelay = false
+
+    @Volatile
     var isConnected: Boolean
         private set
+
     private val webSocketConnectionHelper: WebSocketConnectionHelper
+
+    @Volatile
     private var internalWebSocket: WebSocket? = null
     private val connectionUrl: String
     private var currentRoomToken: String? = null
@@ -151,16 +156,21 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
         }
     }
 
+    @Synchronized
     override fun onOpen(webSocket: WebSocket, response: Response) {
         val previousWebSocket = internalWebSocket
         Log.d(
             TAG,
             "Open webSocket ${webSocket.hashCode()} (previous was ${previousWebSocket?.hashCode()})"
         )
-        internalWebSocket = webSocket
+        if (webSocket !== previousWebSocket || disposed) {
+            webSocket.cancel()
+            return
+        }
         sendHello()
     }
 
+    @Synchronized
     private fun closeWebSocket(webSocket: WebSocket) {
         Log.d(TAG, "closeWebSocket ${webSocket.hashCode()}")
         webSocket.close(NORMAL_CLOSURE, null)
@@ -169,6 +179,9 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
             return
         }
         isConnected = false
+        if (disposed || pendingReconnect?.isDone == false) {
+            return
+        }
         messagesQueue = ArrayList()
         scheduleReconnect(webSocket)
     }
@@ -187,8 +200,10 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
         pendingReconnect?.cancel(false)
         pendingReconnect = reconnectScheduler.schedule(
             {
-                if (!disposed && failedWebSocket === internalWebSocket) {
-                    restartWebSocket()
+                synchronized(this) {
+                    if (!disposed && failedWebSocket === internalWebSocket) {
+                        restartWebSocket()
+                    }
                 }
             },
             delayMillis,
@@ -220,7 +235,9 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
         resumeId = ""
     }
 
+    @Synchronized
     fun restartWebSocket() {
+        cancelPendingReconnect()
         Log.d(TAG, "restartWebSocket: $connectionUrl")
         val previousWebSocket = internalWebSocket
         isConnected = false
@@ -447,7 +464,11 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
     }
 
     @Throws(IOException::class)
+    @Synchronized
     private fun processHelloMessage(webSocket: WebSocket, text: String) {
+        if (webSocket !== internalWebSocket || disposed) {
+            return
+        }
         isConnected = true
         reconnecting = false
         reconnectBackoff.reset()
@@ -509,11 +530,12 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
 
     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
         Log.d(TAG, "onClosing : WebSocket ${webSocket.hashCode()} $code / $reason")
+        closeWebSocket(webSocket)
     }
 
     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
         Log.d(TAG, "onClosed : WebSocket ${webSocket.hashCode()} $code / $reason")
-        isConnected = false
+        closeWebSocket(webSocket)
     }
 
     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -525,6 +547,7 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
     fun hasMCU(): Boolean = hasMCU
     fun supportsChatRelay(): Boolean = supportsChatRelay
 
+    @Synchronized
     @Suppress("Detekt.ComplexMethod")
     fun joinRoomWithRoomTokenAndSession(
         roomToken: String,
@@ -545,6 +568,8 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
                 callEncryptionLifecycle.close()
                 sendMessage(message)
             } else if (
+                isConnected &&
+                !reconnecting &&
                 roomToken == currentRoomToken &&
                 normalBackendSession == currentNormalBackendSession &&
                 federation?.roomId == currentFederation?.roomId &&
@@ -574,6 +599,7 @@ class WebSocketInstance internal constructor(conversationUser: User, connectionU
         }
     }
 
+    @Synchronized
     private fun sendMessage(message: String) {
         if (!isConnected || reconnecting) {
             messagesQueue.add(message)
