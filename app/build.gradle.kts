@@ -59,10 +59,9 @@ android {
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // mayor.minor.hotfix.increment (for increment: 01-50=Alpha / 51-89=RC / 90-99=stable)
-        // xx   .xxx  .xx    .xx
-        versionCode = 260000002
-        versionName = "26.0.0 Alpha 02"
+        // Increase for every release uploaded to Google Play.
+        versionCode = 260000003
+        versionName = "1.0"
 
         vectorDrawables.useSupportLibrary = true
 
@@ -354,6 +353,7 @@ dependencies {
     // tests
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.3")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.1")
+    androidTestImplementation("org.hamcrest:hamcrest:2.2")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
