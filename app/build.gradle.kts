@@ -60,7 +60,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Increase for every release uploaded to Google Play.
-        versionCode = 260000003
+        versionCode = 260000004
         versionName = "1.0"
 
         vectorDrawables.useSupportLibrary = true
